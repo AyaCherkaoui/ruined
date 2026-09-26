@@ -45,3 +45,5 @@ next-env.d.ts
 *.zip
 *.duckdb
 .venv
+*.duckdb.wal
+*.duckdb.tmp

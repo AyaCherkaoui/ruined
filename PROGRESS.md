@@ -13,7 +13,7 @@ comes from our data + deterministic code, never an LLM.
 | 4 | checkCoverage + tests | done |
 | 5 | findAlternatives + tests | done |
 | 6 | Seed 20 synthetic patients | done |
-| 7 | API routes | pending |
+| 7 | API routes | done |
 | 8 | Change tracker + /api/alerts | pending |
 
 ## Task 1 — download the SPUF (done)
@@ -119,10 +119,34 @@ Tests: `lib/alternatives.test.ts` (22, synthetic plan with numbers we control: o
 
 `npx tsx scripts/seed-patients.ts` (idempotent; deterministic; stop any dev server first, DuckDB allows one writer) fills `patients` + `patient_meds` (schema in `data/schema.sql`). Read side: `lib/patients.ts` (`listPatients`, `getPatient` -> the contract's `Patient`, plan names joined from the real CMS plan data).
 
-- 20 patients (`pt-001`..`pt-020`, names/ages/languages invented, ids visibly synthetic) on **16 real Georgia plans** (7 stand-alone PDPs' worth of variety + local MA HMOs/PPOs: Humana, Wellcare, AARP/UHC, Aetna, HealthSpring, Anthem, BlueAdvantage, Clover, Devoted, Kaiser, SilverScript), **2-4 meds each**, real RXCUIs with RxNorm names from the drug cache, doses as free text.
+- 20 patients (`pt-001`..`pt-020`, names/ages/languages invented, ids visibly synthetic) on **16 real Georgia plans** (stand-alone PDPs plus local MA HMOs/PPOs: Humana, Wellcare, AARP/UHC, Aetna, HealthSpring, Anthem, BlueAdvantage, Clover, Devoted, Kaiser, SilverScript), **2-4 meds each**, real RXCUIs with RxNorm names from the drug cache, doses as free text.
 - **7 patients on expensive drugs** (est. monthly cost >= $50 on their plan): Ozempic ($265, prior auth), Eliquis ($62), Trulicity ($249, PA), Tradjenta + Jardiance ($126 / $51), Lumigan + Edarbi ($53 / $108), Toujeo insulin ($275), Myrbetriq + Synthroid ($110 / $12.56). The other 13 take common generics (statins, ACE/ARBs, metformin, amlodipine, levothyroxine, PPIs...). Several expensive patients sit on the same coinsurance PDP (Humana Basic Rx) on purpose: same drugs, very different cost than on copay plans.
 - The script validates against the real tables before writing: plan exists, plan is **non-SNP**, every RXCUI is in the drug cache. Every seeded med is covered by its patient's plan in v1 (so a v2 tier change is a real change).
 - `lib/patients.test.ts` (9 tests): 20 unique ids, exact `Patient` shape, 2-4 distinct meds, real non-SNP GA plans with names from CMS, 10+ distinct plans, 5-7 expensive, all meds covered.
+
+## Task 7 — API routes (done)
+
+All handlers are thin (`app/api/**/route.ts`); logic and tests live in `lib/`. Every response is JSON; errors are `{ "error": "..." }`. Verified three ways: unit tests, the route handlers called directly (`lib/api.test.ts`), and **real HTTP against `next dev`** (curl) plus a clean `next build`.
+
+| Route | Returns | Notes |
+|-------|---------|-------|
+| `GET /api/patients` | `Patient[]` | 20 synthetic patients |
+| `GET /api/patients/[id]` | `Patient` | 404 if unknown |
+| `POST /api/check` | `CheckResponse` `{ coverage, alternatives }` | body below |
+| `GET /api/dashboard` | `DashboardResponse` | 6 of 20 at risk, $298.86/mo potential savings |
+| `GET /api/alerts` | `CoverageAlert[]` | Task 8 |
+
+`POST /api/check` body (the contract has no request type, so this is my definition, in `lib/check.ts`): the plan as `patientId` **or** `contractId` + `planId` [+ `segmentId`, default `000`], and the drug as `rxcui` **or** `drugName`.
+- `drugName` goes through the normalizer (RxNav string matching, cached). A **bare ingredient or brand** ("Ozempic", "apixaban") has no strength, so no formulary lists it: the API answers **422** with `matched` and a `choices` pick-list of that drug's products on the patient's plan, rather than guessing a strength.
+- 400 bad/missing input · 404 unknown patient / plan / drug name · 422 ambiguous name · 502 RxNav unreachable (a real DB error stays a 500).
+
+**Dashboard definition** (`lib/dashboard.ts`): a med is flagged if the plan does not cover it, or an alternative saves >= **$10**/month, or it costs the patient >= **$100**/month (then `bestAlternative` is `null` when nothing cheaper exists, which is what the contract's nullable field is for). A patient is at risk if any med is flagged; `worstDrug` is picked among the *flagged* meds only. `totalPotentialMonthlySavings` sums the shown alternatives' savings. A bug was caught in review of real output before it shipped: choosing the "worst" drug among all meds let a $1 saving on a generic hide a $265 drug (regression test added).
+
+**Deviation from "only /data, /scripts, /lib, /app/api" (needed for the backend to run at all):**
+- `next.config.ts`: `serverExternalPackages: ["@duckdb/node-api", "@duckdb/node-bindings"]`. Without it Turbopack tries to bundle DuckDB's native binding and every route returns 500 (`Module not found: @duckdb/node-bindings-darwin-x64/duckdb.node`, reproduced). It is not on Next's built-in external list.
+- `package.json` / lockfile: dependencies (`@duckdb/node-api`, dev: vitest, tsx) and `test` / `warm-drugs` scripts.
+
+Operational notes: DuckDB allows **one writer process**, so a running `next dev` blocks `scripts/*` and the tests' read-only opens; stop the server first. (`lib/api.test.ts` works on a temp copy of the DB for this reason.) No auth, pagination or response caching (out of scope tonight); the dashboard takes ~0.6 s for 20 patients.
 
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
@@ -140,6 +164,7 @@ Tests: `lib/alternatives.test.ts` (22, synthetic plan with numbers we control: o
 12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
 13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
 14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
+19. Dashboard thresholds ($10 saving, $100 cost) are judgment calls, exported as constants in `lib/dashboard.ts`.
 17. Synthetic patients avoid SNP plans (D-SNP / C-SNP / I-SNP): their low-income-subsidy or institutional cost sharing is not in plan-level data, so estimates for them would mislead.
 18. "Expensive drug" for the seed = estimated patient cost >= $50/month on their plan. It is the patient's cost, not the drug's list price (on copay plans even a $500 drug shows a $47 copay).
 16. "Cheaper" alternatives must cost the patient strictly less; ties (same copay tier) are not suggestions.

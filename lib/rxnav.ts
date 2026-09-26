@@ -25,6 +25,14 @@ export interface RxRelated {
   genericDrugs: RxConcept[]; // tty SCD (for a brand SBD: the clinical drug it is a tradename of)
 }
 
+/** RxNav / RxClass could not be reached or returned an error (as opposed to "no such drug"). */
+export class RxNavError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RxNavError";
+  }
+}
+
 export interface RxNavOptions {
   fetch?: typeof fetch;
   baseUrl?: string;
@@ -62,22 +70,22 @@ export class RxNavClient {
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       await this.throttle();
       this.requestCount++;
+      let fatal: RxNavError | null = null;
       try {
         const res = await this.fetchFn(`${this.baseUrl}${pathAndQuery}`, {
           headers: { Accept: "application/json" },
         });
         if (res.ok) return (await res.json()) as T;
-        if (res.status !== 429 && res.status < 500) {
-          throw new Error(`RxNav ${res.status} for ${pathAndQuery}`);
-        }
-        lastErr = new Error(`RxNav ${res.status} for ${pathAndQuery}`);
+        const err = new RxNavError(`RxNav ${res.status} for ${pathAndQuery}`);
+        if (res.status === 429 || res.status >= 500) lastErr = err; // worth retrying
+        else fatal = err; // a real 4xx will not improve on retry
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith("RxNav 4")) throw err;
-        lastErr = err;
+        lastErr = err; // network failure: retry
       }
+      if (fatal) throw fatal;
       await sleep(500 * 2 ** attempt);
     }
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    throw new RxNavError(lastErr instanceof Error ? lastErr.message : String(lastErr));
   }
 
   /** Exact / normalized name match. search=2 = exact first, then normalized. */
