@@ -61,7 +61,7 @@ New sponsor direction (Impiricus): minimal patient data, and prove the pipeline 
 | 0 | `DATA_MODEL.md` + new tables + `lib/contract.ts` (`Patient`, `Doctor`, `Prescription`, `CoverageChange`) | done |
 | 1 | Pick the drug: real v1 vs v2-cms evidence | done |
 | 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | done |
-| 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | not started |
+| 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | done |
 | 4 | `scripts/e2e.ts` + tests | not started |
 | 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | not started |
 
@@ -172,6 +172,25 @@ two-version world) checks this directly, and so does running the real script twi
   Verified by hand in the test: a tier-2-copay-$10 drug moving to tier-3-coinsurance-25% on a
   $10/unit x 30-unit drug goes from an exact **$10.00 -> $75.00**. Idempotent the same way
   (deterministic id from `(changeId, prescriptionId)`).
+
+### Task 3 -- scripts/seed-scenario.ts: 1 doctor, 5 patients (done)
+
+`npx tsx scripts/seed-scenario.ts` -- idempotent (checks each table before inserting; rerunning
+leaves exactly 1 doctor / 5 patients / 5 prescriptions, verified by running it twice and counting
+rows). All 5 patients are prescribed the chosen drug (rxcui `1653204`, NovoLog FlexPen):
+
+| patient | plan | v1 (before) | v2-cms (after) |
+|---|---|---|---|
+| pt-001 Diane Whitfield | `H1170`-`002` (Kaiser, lost coverage) | covered, tier 3, $47.00/mo | **not covered** |
+| pt-002 Marcus Reyes | `H1170`-`002` | covered, tier 3, $47.00/mo | **not covered** |
+| pt-003 Sandra Nguyen | `H1170`-`002` | covered, tier 3, $47.00/mo | **not covered** |
+| pt-004 Harold Betancourt | `S5884`-`135` (Humana, still covered) | covered, tier 3, $133.56/mo | unchanged, $133.56/mo |
+| pt-005 Rosa Lindqvist | `S5884`-`135` | covered, tier 3, $133.56/mo | unchanged, $133.56/mo |
+
+`started_at` is `2026-05-01` for everyone -- before both loaded releases, so the drug is a real,
+already-in-force prescription at both `v1` and `v2-cms`, not something that only exists because
+of how the demo was seeded. Patient/doctor names are invented; ids are visibly synthetic
+(`pt-00N`, `doc-001`, and `rx-00N` for `pt-00N`'s prescription, by construction).
 
 ## Read this first (decisions that need a human)
 
