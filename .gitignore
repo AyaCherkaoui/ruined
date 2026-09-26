@@ -47,3 +47,6 @@ next-env.d.ts
 .venv
 *.duckdb.wal
 *.duckdb.tmp
+
+# generated patient-notification audio (lib/message.ts, task 3)
+/public/audio/

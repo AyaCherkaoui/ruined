@@ -32,7 +32,7 @@ they were for the existing frontend dashboard.
 | 0 | Contract types (`PatientAlert`, `Digest`, `PatientMessage`, ...) | done |
 | 1 | Real CMS monthly PUF as `v2-cms`; detect real adverse changes; reassign patients | done |
 | 2 | `alert_status` table; `/api/digest`, switch/dismiss/demo-reset | done |
-| 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | pending (mocks + real-key path) |
+| 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | done |
 | 4 | `/api/digest/email` (Resend) | pending |
 
 ## Read this first (decisions that need a human)
@@ -326,6 +326,52 @@ sum-with-nulls-as-0 for both totals, sort + status/switchedTo pass-through, empt
 body, `POST .../dismiss`, a 404 on a bogus id, a 400 on a missing `rxcui`, `POST /api/demo/reset`, and
 confirmed the digest reflects each state change and resets cleanly afterward.
 
+## Task 3 — patient notification: Grok translation + ElevenLabs speech (done)
+
+`POST /api/alerts/:id/message -> PatientMessage`. Numbers never come from an LLM, per the core
+rule: `lib/message.ts`'s `buildEnglishText(alert)` is a plain deterministic template built only
+from `PatientAlert` fields (drug names, `effectiveDate`, `oldMonthlyCost`/`newMonthlyCost`,
+`bestAlternative`'s name/cost/savings) -- one branch per `ChangeType`, omitting a cost sentence
+entirely when a cost is `null` rather than printing "null". xAI Grok (`lib/grok.ts`) only ever
+translates that finished English sentence into the patient's language; it is never given raw
+numbers to compute or asked to phrase a dollar amount itself.
+
+- **Verification, not trust**: `numbersMatch()` extracts every digit run (`\d+(\.\d+)?`, so
+  `"2026-09-01"` -> `["2026","09","01"]`, `"$238.41"` -> `["238.41"]`) from both the English
+  template and the translation and compares them as a multiset. Any mismatch -- a mistranslated
+  digit, a dropped date, a "helpfully" localized decimal separator -- **falls back to the English
+  text** rather than risk a patient reading a wrong dollar figure. `language` on the returned
+  `PatientMessage` reflects what `text` actually is (`"English"` on fallback), not what was
+  requested.
+- **Skips Grok entirely for English-language patients** (`alert.language` case-insensitively
+  `"english"`) -- no network call, no verification needed, `text === englishText`.
+- **ElevenLabs** (`lib/elevenlabs.ts`) always uses one multilingual voice/model
+  (`eleven_multilingual_v2`, overridable via `ELEVENLABS_VOICE_ID` / `ELEVENLABS_MODEL`) on the
+  FINAL text (translated or English-fallback) -- one client handles every patient language. Saved
+  to `public/audio/<alertId>-<random>.mp3` (gitignored: generated, not source) and returned as
+  `/audio/<file>.mp3`, which Next serves directly from `/public`.
+- **Missing keys are a clear error, not a crash**: `GrokClient`/`ElevenLabsClient` throw a shared
+  `MissingApiKeyError` (`lib/http.ts`) when `XAI_API_KEY` / `ELEVENLABS_API_KEY` isn't set;
+  `errorResponse` maps it to **503** with the exact env var name. Verified for real on port 3111
+  with no keys configured: `POST .../message` on a real alert -> `503 {"error":"XAI_API_KEY is not
+  configured. Add it to .env to enable this feature."}`; a bogus alert id -> `404` (checked before
+  any external call is attempted). Once a real `XAI_API_KEY` is added to `.env`, an English-language
+  patient's request would still need `ELEVENLABS_API_KEY` and fail there instead with the same
+  clear-503 pattern (covered by the mocked unit test, not re-verified over HTTP since none of the
+  4 real alerts are on an English-speaking patient right now).
+- **Sets `status: "patient_notified"`** after a message is successfully built, preserving whatever
+  `switchedTo` was already recorded (a doctor can both switch the med and notify the patient; the
+  status enum only shows the latest action, but `switchedTo` isn't cleared by notifying).
+- Model/voice ids (`grok-4-fast`, `eleven_multilingual_v2`, the stock ElevenLabs voice id) are
+  **not verified against a live key** (none is configured yet) and are overridable by env var
+  (`XAI_MODEL`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`) without a code change if wrong.
+
+Tests (all against injected fake `fetch`, matching `lib/rxnav.test.ts`'s pattern -- no real network
+calls): `lib/grok.test.ts` (4), `lib/elevenlabs.test.ts` (3), `lib/message.test.ts` (12: the
+template for every `ChangeType`, null-cost omission, a "no invented numbers" property check, the
+English-skips-Grok path, a successful translation, the number-mismatch fallback, and the
+missing-key error propagating unchanged).
+
 ## Rebuild from scratch (the database and raw data are gitignored)
 
 ```
@@ -337,7 +383,7 @@ python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
 npm install && npm run warm-drugs -- --import-only # drug cache from data/drug_cache.jsonl (offline)
 npx tsx scripts/seed-patients.ts                   # 20 synthetic patients (4 reassigned Rybelsus, task 1)
 npx tsx scripts/make-v2.ts                         # synthetic v2 formulary, fallback for CHANGE_SOURCE=synthetic
-npm test                                           # 190 tests
+npm test                                           # 209 tests
 npm run dev                                        # API on :3000 (stop it before re-running any script above)
 ```
 
@@ -375,6 +421,9 @@ npm run dev                                        # API on :3000 (stop it befor
 31. A drug with more than one simultaneous adverse change produces one `PatientAlert` per `ChangeType`, not one alert with a chosen "primary" type (see "Read this first" #10).
 32. `GET /api/digest` never changes any alert's status (see "Read this first" #12); `"seen"` is a contract value with no producer yet in this build.
 33. `POST /api/alerts/:id/switch` accepts any non-empty `rxcui` string in the body; it does not verify the drug is actually covered by the patient's plan or is the alert's own `bestAlternative`. The doctor is trusted to pick a real switch.
+34. `PatientMessage.language` reflects what `text` actually is, not what was requested: it is the patient's real language on a successful, number-verified translation, and `"English"` whenever translation was skipped (English-speaking patient) or the translation was discarded for changing a number.
+35. Grok/ElevenLabs model and voice ids (`grok-4-fast`, `eleven_multilingual_v2`, ElevenLabs' stock "Rachel" voice) are best-effort choices, not verified against a live key; all three are overridable via env (`XAI_MODEL`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`) without a code change.
+36. `POST /api/alerts/:id/message` sets status `"patient_notified"` but does not clear `switchedTo` -- the two facts ("doctor switched the med" and "patient was notified") are independent even though `AlertStatus` only stores one current status string.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
