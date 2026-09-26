@@ -16,6 +16,15 @@ comes from our data + deterministic code, never an LLM.
 | 7 | API routes | done |
 | 8 | Change tracker + /api/alerts | done |
 
+## Frontend dashboard (`frontend` branch)
+
+Home page only (`app/page.tsx`). It reads `GET /api/dashboard` and `GET /api/alerts` and does not touch `/lib`, `/scripts`, `/data`, or `/app/api`.
+
+- Headline, **6 of 20** at risk, **est. $298.86** potential monthly savings, coverage-change alerts, at-risk patient rows linking to `/patients/[id]` (that page is not built), and a Recharts bar chart of current vs alternative cost.
+- Drug labels use the brand in brackets when RxNorm has one (`[Myrbetriq]` → Myrbetriq), otherwise the first three words.
+- Every dollar amount is prefixed `est.` The chart leaves out the green bar when `bestAlternative` is null ("No safe cheaper option").
+- shadcn/ui (base-nova) with the `cn` helper in `components/utils.ts`, so nothing new landed in `/lib`.
+
 ## Read this first (decisions that need a human)
 
 1. **Alternatives are not clinically validated.** On real plans the naive "same drug class" rule paired an AML drug with celecoxib and morphine with oxycodone. I restricted class-level swaps to a curated allowlist (`INTERCHANGEABLE_CLASSES` in `lib/alternatives.ts`), so the feature is deliberately narrower than the spec's wording. A pharmacist should review that list before anyone relies on it. (Task 5)
