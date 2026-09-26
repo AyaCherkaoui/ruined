@@ -84,3 +84,28 @@ CREATE TABLE IF NOT EXISTS pricing (
   days_supply  INTEGER NOT NULL,  -- 30, 60 or 90
   unit_cost    DOUBLE PRECISION NOT NULL
 );
+
+-- ---------------------------------------------------------------------------------
+-- Drug cache (filled from RxNav / RxClass; see lib/drugs.ts, scripts/warm-drug-cache.ts)
+-- ---------------------------------------------------------------------------------
+-- One row per RxNorm concept we have looked at. Formulary RXCUIs are SCD (generic) / SBD (brand).
+CREATE TABLE IF NOT EXISTS drugs (
+  rxcui             VARCHAR PRIMARY KEY,
+  name              VARCHAR NOT NULL,
+  tty               VARCHAR,            -- RxNorm term type: SCD, SBD, IN, BN, ...
+  ingredient_rxcui  VARCHAR,            -- IN rxcui, or MIN rxcui for multi-ingredient drugs
+  ingredient_name   VARCHAR,
+  class_id          VARCHAR,            -- ATC level-4 class from RxClass, e.g. C10AA
+  class_name        VARCHAR,
+  class_type        VARCHAR,            -- 'ATC1-4'
+  dose_form_group   VARCHAR,            -- RxNorm DFG route family: 'Oral Product', 'Injectable Product', ...
+  generic_rxcui     VARCHAR,            -- for a brand (SBD): the SCD it is a tradename of
+  fetched_at        TIMESTAMP NOT NULL
+);
+
+-- Free-text name a user typed -> rxcui (so repeated lookups never hit the network).
+CREATE TABLE IF NOT EXISTS drug_aliases (
+  alias  VARCHAR PRIMARY KEY,
+  rxcui  VARCHAR NOT NULL
+);
+

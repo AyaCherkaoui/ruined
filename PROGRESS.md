@@ -9,7 +9,7 @@ comes from our data + deterministic code, never an LLM.
 |---|------|--------|
 | 1 | Download latest quarterly CMS SPUF, read record layout | done |
 | 2 | Python + DuckDB loader (Georgia only) | done |
-| 3 | Drug normalizer (RxNav / RxClass) + drugs cache | pending |
+| 3 | Drug normalizer (RxNav / RxClass) + drugs cache | done |
 | 4 | checkCoverage + tests | pending |
 | 5 | findAlternatives + tests | pending |
 | 6 | Seed 20 synthetic patients | pending |
@@ -67,6 +67,22 @@ every plan has formulary + pricing rows; each (formulary, rxcui) has exactly **o
 one set of PA/ST/QL flags (so lookups are unambiguous); every tier used by a formulary has a
 level-1 30-day cost row for every plan using it; tiers 1-6 present.
 
+## Task 3 — drug normalizer + drugs cache (done)
+
+Code: `lib/rxnav.ts` (API client), `lib/drugs.ts` (normalizer + cache), `lib/db.ts` (DB layer), `scripts/warm-drug-cache.ts`.
+Tests: `lib/drugs.test.ts` (mocked RxNav, runs offline; `RXNAV_LIVE=1 npx vitest run lib/drugs.test.ts` adds a real-API smoke test — passes).
+
+- `normalizeDrug(db, "Lipitor 40 mg")` -> `{ rxcui, name, tty, ingredient, classId/className, doseFormGroup, genericRxcui }`.
+  Order: cached alias -> RxNav exact/normalized name -> RxNav approximate match. Everything cached in `drugs` + `drug_aliases`.
+- Formularies list **SCD (generic) / SBD (brand)** RXCUIs, so those beat components/ingredients/brand names when a match is ambiguous.
+  Found via live testing: an exact hit on a partial concept (`lisinopril 10 mg` -> SCDC, no dose form) is upgraded to the full SCD.
+  A bare ingredient or brand (`Ozempic`, `insulin glargine`) has no strength, so it is returned as IN/BN as-is (the check API turns those into a pick-list).
+- Class = the drug's **ATC level-4** class from RxClass (e.g. `C10AA` statins). One class per drug; lowest class id if several. Combination products get no class (the classes of their parts say nothing about the combo). Brands (SBD) also store `generic_rxcui` (Lipitor -> atorvastatin) for the alternatives logic.
+- **Warmed the cache for all 4,791 RXCUIs on the Georgia formularies**: 0 failures, 4,246 (89%) have an ATC class (rest are combinations / drugs RxClass has no ATC class for). Result committed as `data/drug_cache.jsonl` (1.4 MB) so the DB rebuilds offline: `npm run warm-drugs -- --import-only`.
+- RxNav client throttles to ~15 req/s (NLM limit is 20) and retries 429/5xx with backoff.
+- DB layer is DuckDB (`@duckdb/node-api`) behind a small `Db` interface (`query`/`run` with `$1` params). `RUINED_DB` env overrides the file path. `openDb()` applies `data/schema.sql` (idempotent); read-only opens do not.
+- Dev tooling added: vitest **3** (vitest 5 needs `@types/node` >= 22 but the project pins ^20) and tsx (scripts run as `tsx scripts/x.ts`; project is CommonJS so scripts use an async `main()`).
+
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
@@ -78,8 +94,13 @@ level-1 30-day cost row for every plan using it; tiers 1-6 present.
    pharmacy-network files are skipped (see known issues).
 7. Amounts are stored as DOUBLE (not DECIMAL) so the Node client returns plain numbers; money is rounded to cents at the edge.
 8. Pricing keeps DAYS_SUPPLY 30 and 90 only (60-day rows dropped) — `--pricing-days` changes that.
+9. DATABASE_URL is not set on this machine, so the DuckDB file is the backend. A Postgres adapter for `lib/db.ts` is NOT written (it could not be tested here); the schema and all SQL are kept portable for it.
+10. "Same class" = same ATC level-4 class (finer than VA/EPC classes; ATC-3 would suggest SGLT2 inhibitors to a metformin patient).
+11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
   insulin estimates use the ordinary tier cost share and may be overstated.
+- 11% of formulary drugs have no ATC class, so they never get (or appear as) alternatives.
+- Only the schema init in `openDb()` (read-write) creates tables; an old DB file opened read-only will lack newer tables until a write-mode open has run.
 - Excluded-drug and indication-based coverage files are not loaded (only relevant to enhanced plans / niche cases).
