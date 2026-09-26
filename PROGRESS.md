@@ -14,7 +14,7 @@ comes from our data + deterministic code, never an LLM.
 | 5 | findAlternatives + tests | done |
 | 6 | Seed 20 synthetic patients | done |
 | 7 | API routes | done |
-| 8 | Change tracker + /api/alerts | pending |
+| 8 | Change tracker + /api/alerts | done |
 
 ## Task 1 — download the SPUF (done)
 
@@ -148,6 +148,30 @@ All handlers are thin (`app/api/**/route.ts`); logic and tests live in `lib/`. E
 
 Operational notes: DuckDB allows **one writer process**, so a running `next dev` blocks `scripts/*` and the tests' read-only opens; stop the server first. (`lib/api.test.ts` works on a temp copy of the DB for this reason.) No auth, pagination or response caching (out of scope tonight); the dashboard takes ~0.6 s for 20 patients.
 
+## Task 8 — change tracker + alerts (done)
+
+`lib/changes.ts` (`diffFormularies`, `buildAlerts`), `scripts/make-v2.ts`, `GET /api/alerts` -> `CoverageAlert[]` (exact contract type).
+
+- **v2 is SYNTHETIC** and labeled so (`data_versions.source` = "SYNTHETIC: copy of v1 with 6 formulary tier increases ... not CMS data"). `npx tsx scripts/make-v2.ts` copies all four v1 tables to `data_version = 'v2'` (plans, formulary, beneficiary_cost, pricing; row counts verified equal) and then raises 6 formulary tiers, deterministically:
+  - the 5 seed-patient meds with the highest cost, one per patient, each moved to the nearest higher tier that every plan on that formulary has a cost row for **and** that really raises that patient's cost: Toujeo $274.82 -> $373.75, Ozempic $264.97 -> $360.35, Trulicity $249.17 -> $299.01, Tradjenta $126.14 -> $171.56, Myrbetriq $110.49 -> $150.27 (tier 3 -> 4; 34% / 30% coinsurance). All five v2 figures were re-derived independently from the raw tables.
+  - lisinopril 20 mg (the drug the most patients share) tier 1 -> 2: **one formulary change that hits two patients** ($0 -> $1), to exercise the patient matching.
+- **Diff**: SQL join of v1 and v2 formulary rows on (formulary_id, rxcui) where the tier differs -> 6 rows. **Match**: each patient's plan -> FORMULARY_ID -> their meds; old/new tier and cost come from `checkCoverage` at each version (`dataVersion` option). Formularies are shared by many plans, so a change reaches every patient on any plan using that formulary.
+- **Alert rule**: only adverse changes, i.e. the drug moved to a higher tier or its estimated cost went up (improvements are not alerts). Sorted by cost increase, then patient, then drug. `GET /api/alerts` returns 7 alerts on the seeded data.
+- Tests (`lib/changes.test.ts`, 9 + 1 route test): a synthetic two-plan / two-formulary world covering cost increase, same-cost tier move (still an alert), improvement (no alert), unchanged drug, drug nobody takes, plan on an unchanged formulary, ordering, v1/v2 independence; plus pinned real-data checks (exactly 6 rows differ, nothing else differs, all 7 alerts).
+
+## Rebuild from scratch (the database and raw data are gitignored)
+
+```
+python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+.venv/bin/python scripts/download_spuf.py          # 2.5 GB CMS zip + record layout PDFs -> data/raw/
+.venv/bin/python scripts/load_spuf.py              # Georgia only -> data/ruined.duckdb, data_version v1 (~15 s)
+npm install && npm run warm-drugs -- --import-only # drug cache from data/drug_cache.jsonl (offline)
+npx tsx scripts/seed-patients.ts                   # 20 synthetic patients
+npx tsx scripts/make-v2.ts                         # synthetic v2 formulary for the alerts demo
+npm test                                           # 138 tests
+npm run dev                                        # API on :3000 (stop it before re-running any script above)
+```
+
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
@@ -164,6 +188,8 @@ Operational notes: DuckDB allows **one writer process**, so a running `next dev`
 12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
 13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
 14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
+20. Alerts cover tier changes only (the contract's `CoverageAlert` has tiers and costs, nothing else): a drug dropped from a formulary or a newly added PA / step-therapy rule is not reported. Those are arguably the worst changes for a patient; the type would need to grow to carry them.
+21. v2 exists only to demo the tracker; it changes formulary tiers, not prices or cost-sharing rules.
 19. Dashboard thresholds ($10 saving, $100 cost) are judgment calls, exported as constants in `lib/dashboard.ts`.
 17. Synthetic patients avoid SNP plans (D-SNP / C-SNP / I-SNP): their low-income-subsidy or institutional cost sharing is not in plan-level data, so estimates for them would mislead.
 18. "Expensive drug" for the seed = estimated patient cost >= $50/month on their plan. It is the patient's cost, not the drug's list price (on copay plans even a $500 drug shows a $47 copay).
@@ -177,6 +203,7 @@ Operational notes: DuckDB allows **one writer process**, so a running `next dev`
 - Cost estimates assume a typical fill quantity, not the patient's actual dose (see Task 4). `Patient.meds[].dose` is free text and is not parsed.
 - Dual-eligible / low-income-subsidy members pay LIS copays instead of plan cost sharing; not modeled (seed patients avoid SNP plans).
 - **Alternatives are not clinically validated** (see Task 5): they need pharmacist review before real use; the class allowlist is a starting point.
+- Alerts miss formulary removals and new PA / step-therapy rules (see assumption 20).
 - Insulins and inhalers get no alternatives (unit / device / dose-conversion differences); brand -> generic still works for them.
 - 11% of formulary drugs have no ATC class, so they never get (or appear as) alternatives.
 - Only the schema init in `openDb()` (read-write) creates tables; an old DB file opened read-only will lack newer tables until a write-mode open has run.

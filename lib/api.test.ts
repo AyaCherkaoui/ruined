@@ -2,11 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { GET as getAlerts } from "../app/api/alerts/route";
 import { POST as postCheck } from "../app/api/check/route";
 import { GET as getDashboard } from "../app/api/dashboard/route";
 import { GET as getPatientById } from "../app/api/patients/[id]/route";
 import { GET as getPatients } from "../app/api/patients/route";
-import type { CheckResponse, DashboardResponse, Patient } from "./contract";
+import type { CheckResponse, CoverageAlert, DashboardResponse, Patient } from "./contract";
 import { dbPath, getDb } from "./db";
 
 // The real route handlers, called directly, against a temp COPY of the database (so the tests never
@@ -77,5 +78,14 @@ describe.skipIf(!hasDb)("API route handlers", () => {
     expect(Object.keys(d).sort()).toEqual(["atRisk", "patientsOverpaying", "totalPatients", "totalPotentialMonthlySavings"]);
     expect(d.totalPatients).toBe(20);
     expect(d.patientsOverpaying).toBe(d.atRisk.length);
+  });
+
+  it("GET /api/alerts -> CoverageAlert[] for the v1 -> v2 formulary changes", async () => {
+    const res = await getAlerts();
+    expect(res.status).toBe(200);
+    const alerts = (await res.json()) as CoverageAlert[];
+    expect(alerts).toHaveLength(7);
+    expect(Object.keys(alerts[0]).sort()).toEqual(["drugName", "newMonthlyCost", "newTier", "oldMonthlyCost", "oldTier", "patientId", "patientName"]);
+    expect(alerts[0]).toMatchObject({ patientId: "pt-006", oldTier: 3, newTier: 4, oldMonthlyCost: 274.82, newMonthlyCost: 373.75 });
   });
 });
