@@ -88,6 +88,36 @@ engine) and `ChangeType` (same five values as before: `removed`, `tier_increase`
 `data/ruined.duckdb` once by hand, then reopened so the new schema created them fresh. A from-
 scratch rebuild never needs this step.
 
+### Task 1 -- the chosen drug: NovoLog FlexPen, insulin aspart (done)
+
+`v1` (real CMS quarterly SPUF, Q2 2026) and `v2-cms` (real CMS monthly PUF, September 2026) were
+already both loaded on this branch (old task 1 of the now-superseded pivot -- see above), which
+made this a direct SQL scan rather than a new download. Query: every (formulary, rxcui) on any
+Georgia plan where `v1` covered the drug and `v2-cms` either dropped it or made it worse
+(higher tier / new PA / new ST / new QL), filtered to drug name / class containing "insulin" or a
+known insulin brand.
+
+**Finding**: NovoLog (insulin aspart, human) was dropped **entirely** from the formulary between
+`v1` and `v2-cms` on 10 Georgia plans -- all 8 Kaiser Permanente Senior Advantage / Dual Essential
+plans under contract **H1170**, plus CareSource Dual Advantage / Dual Advantage Plus under
+**H8390** -- while remaining covered on 130+ other Georgia plans (Humana, Wellcare, Aetna, Anthem,
+UHC, AARP, HealthSpring, Devoted, BlueAdvantage, SilverScript, Clover, ...). Both NovoLog forms on
+the formulary lost coverage identically: the 3 mL FlexPen (rxcui `1653204`) and the 10 mL vial
+(rxcui `351926`). **Chosen drug: rxcui `1653204`** ("3 ML insulin aspart, human 100 UNT/ML Pen
+Injector [NovoLog]", SBD) -- the FlexPen, the more commonly prescribed outpatient form.
+
+Evidence, via `checkCoverage` itself (not a hand re-derivation) at each version:
+
+| | plan | formulary_id | v1 | v2-cms |
+|---|---|---|---|---|
+| **lost coverage** | `H1170`-`002` (Kaiser Permanente Senior Advantage Enhanced 1, HMO, non-SNP) | `00026405` | covered, tier 3, no PA/ST/QL, **est. $47.00/mo** | **not_covered** (tier null, cost null) |
+| **stayed covered** | `S5884`-`135` (Humana Basic Rx Plan, PDP, non-SNP) | `00026399` | covered, tier 3, no PA/ST/QL, **est. $133.56/mo** | unchanged: covered, tier 3, **est. $133.56/mo** |
+
+(Both plans' segment_id is `000`.) This is a real `removed` change under the new `ChangeType`
+enum -- exactly the shape the sponsor asked for ("an insulin brand that lost coverage ... on at
+least one plan while staying covered on at least one other plan"), so no fallback to Rybelsus was
+needed.
+
 ## Read this first (decisions that need a human)
 
 1. **Alternatives are not clinically validated.** On real plans the naive "same drug class" rule paired an AML drug with celecoxib and morphine with oxycodone. I restricted class-level swaps to a curated allowlist (`INTERCHANGEABLE_CLASSES` in `lib/alternatives.ts`), so the feature is deliberately narrower than the spec's wording. A pharmacist should review that list before anyone relies on it. (Task 5)
