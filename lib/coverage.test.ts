@@ -29,6 +29,7 @@ describe("pickCostShare", () => {
     cost_amt_nonpref: 10,
     cost_min_amt_nonpref: 0,
     cost_max_amt_nonpref: 0,
+    tier_specialty: false,
     ...over,
   });
 

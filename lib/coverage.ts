@@ -58,6 +58,8 @@ export interface CostRow {
   cost_amt_nonpref: number | null;
   cost_min_amt_nonpref: number | null;
   cost_max_amt_nonpref: number | null;
+  /** The plan flags this tier as a specialty tier (rare / very high-cost drugs). */
+  tier_specialty: boolean | null;
 }
 
 /**
@@ -163,7 +165,7 @@ export async function loadPlanContext(db: Db, key: PlanKey, dataVersion = DEFAUL
   // days_supply = 1 means a 30-day supply in the CMS beneficiary cost file
   const costs = await db.query<CostRow>(
     `SELECT tier, coverage_level, cost_type_pref, cost_amt_pref, cost_min_amt_pref, cost_max_amt_pref,
-            cost_type_nonpref, cost_amt_nonpref, cost_min_amt_nonpref, cost_max_amt_nonpref
+            cost_type_nonpref, cost_amt_nonpref, cost_min_amt_nonpref, cost_max_amt_nonpref, tier_specialty
        FROM beneficiary_cost
       WHERE data_version = $1 AND contract_id = $2 AND plan_id = $3 AND segment_id = $4
         AND days_supply = 1 AND coverage_level IN (0, 1)
@@ -174,6 +176,11 @@ export async function loadPlanContext(db: Db, key: PlanKey, dataVersion = DEFAUL
   for (const row of costs) costByTier.set(row.tier, row); // level 1 rows come last and win over level 0
 
   return { key, planName: plan[0].plan_name, formularyId: plan[0].formulary_id, dataVersion, costByTier };
+}
+
+/** Is this tier one the plan designates as a specialty tier? */
+export function isSpecialtyTier(ctx: PlanContext, tier: number | null): boolean {
+  return tier !== null && ctx.costByTier.get(tier)?.tier_specialty === true;
 }
 
 interface FormularyRow {

@@ -11,7 +11,7 @@ comes from our data + deterministic code, never an LLM.
 | 2 | Python + DuckDB loader (Georgia only) | done |
 | 3 | Drug normalizer (RxNav / RxClass) + drugs cache | done |
 | 4 | checkCoverage + tests | done |
-| 5 | findAlternatives + tests | pending |
+| 5 | findAlternatives + tests | done |
 | 6 | Seed 20 synthetic patients | pending |
 | 7 | API routes | pending |
 | 8 | Change tracker + /api/alerts | pending |
@@ -98,6 +98,23 @@ Tests (`lib/coverage.test.ts`, 43): pure-logic tests (cost share, copay/coinsura
 
 **Bug found while hand-verifying, and the decision it forced:** the CMS file has no dose, and my first version priced the fill at the plan's own quantity limit. That priced Eliquis at 30, 60 or 74 tablets depending on the plan. Now the quantity is a property of the *drug*: the smallest 30-day quantity that at least 20% of the formularies that set a QL agree on (Eliquis 5 mg -> 60, Farxiga -> 30), capped by the plan's own QL if lower. With no QL anywhere: oral = 30 units (1/day), other dose forms = 1 unit. `quantityPer30Days` overrides it when a real dose is known.
 
+## Task 5 — findAlternatives (done)
+
+`lib/alternatives.ts`: `findAlternatives(plan, rxcui, opts?) -> Alternative[]` (exact contract type; top 3; sorted **no restrictions first, then lowest estimated cost**, then tier / name / rxcui so the order is always deterministic).
+Candidates are covered by the same plan and cheaper for the patient (`includeCostlier` opts out). If the current drug is not covered at all, covered candidates come back with `monthlySavings: 0`.
+
+**Two kinds of candidate:** (1) a brand's *exact generic equivalent* (RxNorm `tradename_of`), e.g. Synthroid -> generic levothyroxine ($12.56 -> $0, verified by hand); (2) other ingredients in the same ATC level-4 class + same route family (oral vs injectable).
+
+**This part matters and needs a human (clinician / pharmacist) review.** Scanning real plans with the naive "same ATC class" rule produced clinically absurd or dangerous suggestions: an AML drug -> celecoxib ($20,818 "saved"), hepatitis C therapy -> ribavirin, morphine -> oxycodone, clozapine -> olanzapine, Multaq -> amiodarone, a maintenance LABA inhaler -> a rescue SABA, oral vancomycin -> nystatin, and starter packs priced as if they were monthly drugs. ATC classes are not therapeutic-substitution groups. So, all deterministic, in code, and tested:
+- **Curated `INTERCHANGEABLE_CLASSES`** (25 ATC-4 classes: statins, ACE/ARB, DHP CCBs, selective beta blockers, thiazide/loop diuretics, factor Xa inhibitors, GLP-1 / SGLT2 / DPP-4 / sulfonylureas, PPIs, H2 blockers, SSRIs, cholinesterase inhibitors, triptans, CGRP antagonists, alpha blockers, 5-ARIs, urinary antispasmodics, bisphosphonates, xanthine oxidase inhibitors, prostaglandin eye drops, nasal steroids, leukotriene antagonists). Class-level swaps only happen inside it. Opioids, stimulants, benzodiazepines, antiepileptics, antipsychotics, antiarrhythmics, heparins, insulins, inhalers, thyroid, oncology, immunology and anti-infectives are deliberately out. **Extend it only with clinical sign-off.**
+- **Specialty-tier drugs** (the plan's own `TIER_SPECIALTY_YN`) get no class-level alternatives, as source or alternative.
+- **Only single clinical drugs (SCD/SBD)**: never starter packs / kits (GPCK/BPCK).
+- **One entry per ingredient, shown as its worst-case product** (most restricted, then most expensive). We cannot know which strength is dose-equivalent, and picking the cheapest strength systematically overstated savings (Eliquis 5 mg -> rivaroxaban 2.5 mg). Any saving shown holds whichever strength the prescriber picks.
+- The brand -> exact-generic path is exempt from the class and specialty guardrails (it is the same drug).
+These are class-level suggestions for the prescriber to review, not validated clinical interchanges. Practical effect on real 2026 Georgia plans: brand-to-brand swaps usually save $0-10 (they share a copay tier); the meaningful savings come from brand -> generic and from moves to a lower tier.
+
+Tests: `lib/alternatives.test.ts` (22, synthetic plan with numbers we control: ordering, dedupe, worst-case, cheaper-only, packs, class/specialty guardrails, generic exemption) and `lib/alternatives.real.test.ts` (9, real data: verified examples plus a property test over ~300 real drugs on two plans checking every rule at once).
+
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
@@ -114,6 +131,7 @@ Tests (`lib/coverage.test.ts`, 43): pure-logic tests (cost share, copay/coinsura
 12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
 13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
 14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
+16. "Cheaper" alternatives must cost the patient strictly less; ties (same copay tier) are not suggestions.
 15. Estimates ignore: deductible, coverage phases / the 2026 $2,100 out-of-pocket cap, manufacturer discount program, low-income subsidy, mail-order/90-day pricing, pharmacy dispensing fees.
 11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.
 
@@ -122,6 +140,8 @@ Tests (`lib/coverage.test.ts`, 43): pure-logic tests (cost share, copay/coinsura
   insulin estimates use the ordinary tier cost share and may be overstated.
 - Cost estimates assume a typical fill quantity, not the patient's actual dose (see Task 4). `Patient.meds[].dose` is free text and is not parsed.
 - Dual-eligible / low-income-subsidy members pay LIS copays instead of plan cost sharing; not modeled (seed patients avoid SNP plans).
+- **Alternatives are not clinically validated** (see Task 5): they need pharmacist review before real use; the class allowlist is a starting point.
+- Insulins and inhalers get no alternatives (unit / device / dose-conversion differences); brand -> generic still works for them.
 - 11% of formulary drugs have no ATC class, so they never get (or appear as) alternatives.
 - Only the schema init in `openDb()` (read-write) creates tables; an old DB file opened read-only will lack newer tables until a write-mode open has run.
 - Excluded-drug and indication-based coverage files are not loaded (only relevant to enhanced plans / niche cases).
