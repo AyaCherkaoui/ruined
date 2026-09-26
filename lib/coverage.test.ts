@@ -11,7 +11,7 @@ import {
   typicalQuantity,
   type CostRow,
 } from "./coverage";
-import { dbPath, openDb, type Db } from "./db";
+import { dbPath, openDbSnapshot, closeDbSnapshot, type Db } from "./db";
 
 // ---------------------------------------------------------------------------------------
 // Pure logic
@@ -177,11 +177,13 @@ const PLANS: { label: string; key: [string, string, string]; expected: Record<ke
 
 describe.skipIf(!hasDb)("checkCoverage on real Georgia Part D data (5+ common drugs)", () => {
   let db: Db;
+  let snapshot: { db: Db; path: string };
   beforeAll(async () => {
-    db = await openDb({ readOnly: true });
+    snapshot = await openDbSnapshot("coverage-real");
+    db = snapshot.db;
   });
   afterAll(async () => {
-    await db.close();
+    if (snapshot) await closeDbSnapshot(snapshot);
   });
 
   for (const plan of PLANS) {

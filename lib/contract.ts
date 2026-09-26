@@ -43,6 +43,23 @@ export interface Alternative extends CoverageResult {
   monthlySavings: number;
 }
 
+export interface CheckResponse {
+  coverage: CoverageResult;
+  alternatives: Alternative[];
+}
+
+/** A patient plus the plan they are enrolled in. The plan is enrollment, not a demographic. */
+export interface PatientSummary {
+  id: string;
+  fullName: string;
+  plan: Plan;
+}
+
+export interface DrugOption {
+  rxcui: string;
+  drugName: string;
+}
+
 export type ChangeType = "removed" | "tier_increase" | "new_prior_auth" | "new_step_therapy" | "new_quantity_limit";
 
 // Matches the coverage_changes table (see DATA_MODEL.md). drugName is joined in for
@@ -82,10 +99,14 @@ export interface PatientAlert {
   drugName: string;
   contractId: string;
   planId: string;
+  /** Joined from the plan file for display. Not a column on patient_alerts. */
+  planName: string;
   oldMonthlyCost: number | null;
   newMonthlyCost: number | null;
   bestAlternativeRxcui: string | null;
   bestAlternativeCost: number | null;
+  /** Joined from the drug cache. Null when there is no suggested switch. */
+  bestAlternativeName: string | null;
   status: PatientAlertStatus;
   createdAt: string;
 }

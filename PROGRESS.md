@@ -1,10 +1,25 @@
 # PROGRESS
 
-Backend-only build. Every coverage decision comes from our data + deterministic code, never an LLM.
-Tasks 1-8 were built on the `backend` branch (local commits, no push); Task 9 and the pivot below
-are on the `api` branch (a separate worktree at `../ruined-api`), same rules.
+Every coverage decision comes from our data + deterministic code, never an LLM.
 
-## Status
+## Clean slate after `api` → `frontend` merge (2026-09-26)
+
+The merge deleted `app/api/**` while the UI still called `/api/dashboard` and the old
+20-patient types. That is fixed on `frontend`:
+
+| Piece | Now |
+|-------|-----|
+| Database | Default path is `data/scenario.duckdb` (5 patients, v1 + v2-cms). Override with `RUINED_DB`. The old `data/ruined.duckdb` (20 patients) is not used by the app. |
+| Contract | `Patient = { id, fullName }`. UI uses `PatientSummary` / `PatientAlert` from `lib/contract.ts`. Age/language mocks removed. |
+| API | `GET /api/doctors/:id/alerts`, `POST /api/check`, `GET /api/patients/search`, `GET /api/drugs/search`, `POST /api/alerts/:id/dismiss`, `POST /api/demo/reset` |
+| Home + dashboard | Read live alerts (3 NovoLog removals on Kaiser). No `/api/dashboard` 404. |
+| Check page | Searches real patients/prescriptions; coverage uses `v2-cms`. |
+
+Verified: `npm test` (engine + query tests), `npx tsc --noEmit`, curl of alerts/check/home/dashboard.
+
+Still open from the pivot: `scripts/e2e.ts`, `GET /api/changes`, `POST /api/pipeline/run`.
+
+## Status (historical + pivot)
 
 | # | Task | Status |
 |---|------|--------|
@@ -13,10 +28,10 @@ are on the `api` branch (a separate worktree at `../ruined-api`), same rules.
 | 3 | Drug normalizer (RxNav / RxClass) + drugs cache | done |
 | 4 | checkCoverage + tests | done |
 | 5 | findAlternatives + tests | done |
-| 6 | Seed 20 synthetic patients | done |
-| 7 | API routes | done |
-| 8 | Change tracker + /api/alerts | done |
-| 9 | Patient/drug search + /api/upcoming (`api` branch) | done |
+| 6 | Seed 20 synthetic patients | done (superseded by 5-patient scenario) |
+| 7 | API routes | done (rewired to minimal-patient model) |
+| 8 | Change tracker + /api/alerts | done (pipeline → patient_alerts) |
+| 9 | Patient/drug search + /api/upcoming (`api` branch) | search done; `/api/upcoming` dropped |
 
 ## Superseded: proactive plan-change alerts (`api` branch, old task numbering 0-4) -- REMOVED tonight
 
@@ -62,8 +77,8 @@ New sponsor direction (Impiricus): minimal patient data, and prove the pipeline 
 | 1 | Pick the drug: real v1 vs v2-cms evidence | done |
 | 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | done |
 | 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | done |
-| 4 | `scripts/e2e.ts` + tests | not started |
-| 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | not started |
+| 4 | `scripts/e2e.ts` + tests | not started (`lib/queries.test.ts` covers the read path) |
+| 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | alerts (+ check/search/dismiss/reset) done; changes + pipeline/run not started |
 
 ### Task 0 -- data model + contract (done)
 

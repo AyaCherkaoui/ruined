@@ -85,7 +85,7 @@ export function CostChart({ points }: { points: CostPoint[] }) {
           />
           <Bar
             dataKey="current"
-            name="Current cost"
+            name="Cost before change"
             fill={CURRENT}
             radius={[0, 4, 4, 0]}
             maxBarSize={18}

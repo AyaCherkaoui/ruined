@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Check, Search, X } from "lucide-react";
 import { checkDrug, searchDrugs, searchPatients, type DrugHit } from "@/app/_lib/api";
-import type { Alternative, CheckResponse, Patient } from "@/lib/contract";
+import type { Alternative, CheckResponse, PatientSummary } from "@/lib/contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -169,11 +169,11 @@ function ComboBox<T>({
 
 export function DoctorTool() {
   const [patientQuery, setPatientQuery] = useState("");
-  const [patientOptions, setPatientOptions] = useState<Patient[]>([]);
+  const [patientOptions, setPatientOptions] = useState<PatientSummary[]>([]);
   const [patientOpen, setPatientOpen] = useState(false);
   const [patientLoading, setPatientLoading] = useState(false);
   const [patientActive, setPatientActive] = useState(0);
-  const [patient, setPatient] = useState<Patient | null>(null);
+  const [patient, setPatient] = useState<PatientSummary | null>(null);
 
   const [drugQuery, setDrugQuery] = useState("");
   const [drugOptions, setDrugOptions] = useState<DrugHit[]>([]);
@@ -252,7 +252,7 @@ export function DoctorTool() {
     setPrescribedRxcui(null);
   }
 
-  function choosePatient(next: Patient) {
+  function choosePatient(next: PatientSummary) {
     checkRequest.current += 1;
     setPatient(next);
     setPatientQuery("");
@@ -316,16 +316,13 @@ export function DoctorTool() {
                   <h2 className="mt-1 text-xl font-semibold tracking-tight text-neutral-950">Patient</h2>
                   <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 py-1 pr-1 pl-3">
                     <span className="min-w-0 text-sm text-neutral-800">
-                      <span className="font-semibold text-neutral-950">{patient.name}</span>
-                      <span className="text-neutral-600">
-                        {" "}
-                        · {patient.age} · {patient.language} · {patient.plan.planName}
-                      </span>
+                      <span className="font-semibold text-neutral-950">{patient.fullName}</span>
+                      <span className="text-neutral-600"> · {patient.plan.planName}</span>
                     </span>
                     <button
                       type="button"
                       className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-200 focus-visible:ring-3 focus-visible:ring-teal-700 focus-visible:outline-none"
-                      aria-label={`Clear ${patient.name}`}
+                      aria-label={`Clear ${patient.fullName}`}
                       onClick={clearPatient}
                     >
                       <X className="size-4" aria-hidden />
@@ -354,8 +351,8 @@ export function DoctorTool() {
                   onSelect={choosePatient}
                   optionKey={(option) => option.id}
                   renderOption={(option) => ({
-                    title: option.name,
-                    detail: `${option.age} · ${option.plan.planName}`,
+                    title: option.fullName,
+                    detail: option.plan.planName,
                   })}
                 />
               )}

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classAllowsAlternatives, compareAlternatives, findAlternatives, MAX_ALTERNATIVES } from "./alternatives";
 import { checkCoverage, coverageForRxcuis, isSpecialtyTier, loadPlanContext, round2 } from "./coverage";
-import { dbPath, openDb, type Db } from "./db";
+import { dbPath, openDbSnapshot, closeDbSnapshot, type Db } from "./db";
 
 // findAlternatives against the real CMS Q2 2026 Georgia data (data_version 'v1').
 // Pinned numbers were verified independently in Python from the raw tables.
@@ -15,11 +15,13 @@ const HEALTHSPRING = { contractId: "H0439", planId: "006", segmentId: "000" };
 
 describe.skipIf(!hasDb)("findAlternatives on real Georgia plans", () => {
   let db: Db;
+  let snapshot: { db: Db; path: string };
   beforeAll(async () => {
-    db = await openDb({ readOnly: true });
+    snapshot = await openDbSnapshot("alt-real");
+    db = snapshot.db;
   });
   afterAll(async () => {
-    await db.close();
+    if (snapshot) await closeDbSnapshot(snapshot);
   });
 
   it("brand -> its exact generic: Synthroid 50 mcg ($12.56, tier 3) -> generic levothyroxine (tier 1, $0)", async () => {

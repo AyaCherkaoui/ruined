@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# How many patients have I financially ruined?
 
-## Getting Started
+Medicare Part D coverage and cost estimates for doctors. Coverage decisions come from CMS formulary data and deterministic code — never from an LLM.
 
-First, run the development server:
+## Demo (current)
+
+One drug: **NovoLog FlexPen** (insulin aspart, RXCUI `1653204`). Five synthetic Georgia patients. Three lost coverage between CMS quarterly `v1` and monthly `v2-cms` on Kaiser `H1170-002`; two still covered on Humana Basic Rx.
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Needs data/scenario.duckdb (gitignored). Copy from the api worktree or rebuild:
+#   python loaders + npx tsx scripts/seed-scenario.ts
+#   npx tsx scripts/run-pipeline.ts 1653204
+
+npm install
+npm run dev          # http://localhost:3000
+npm test
+npx tsc --noEmit
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Optional: `RUINED_DB=/path/to/file.duckdb` overrides the default `data/scenario.duckdb`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`npm test` copies the database into a temp file for real-data suites, so it can run while `next
+dev` is open. Stop the server before any script that *writes* the database (seed, pipeline, loaders).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## App routes
 
-## Learn More
+| Path | What it does |
+|------|----------------|
+| `/` | Alert inbox for `doc-001` |
+| `/dashboard` | Counts + chart for the same alerts |
+| `/check` | Search a patient / prescription, then live coverage check |
 
-To learn more about Next.js, take a look at the following resources:
+## API
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Method | Path | Returns |
+|--------|------|---------|
+| GET | `/api/doctors/:id/alerts` | `PatientAlert[]` |
+| POST | `/api/check` | `{ coverage, alternatives }` |
+| GET | `/api/patients/search?q=` | `PatientSummary[]` |
+| GET | `/api/drugs/search?patientId=&q=` | `DrugOption[]` |
+| POST | `/api/alerts/:id/dismiss` | `PatientAlert` |
+| POST | `/api/demo/reset` | `{ reset: true }` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Shared types live in `lib/contract.ts`. Schema: `data/schema.sql` / `DATA_MODEL.md`. Build notes: `PROGRESS.md`.

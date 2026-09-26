@@ -27,6 +27,20 @@ export function alertSentence(alert: {
   return `${alert.patientName}'s ${displayDrugName(alert.drugName)} went from ${estMoney(alert.oldMonthlyCost)} to ${estMoney(alert.newMonthlyCost)}/month`;
 }
 
+export function coverageChangeSentence(alert: {
+  patientName: string;
+  drugName: string;
+  changeType: string;
+  oldMonthlyCost: number | null;
+  newMonthlyCost: number | null;
+}): string {
+  const drug = displayDrugName(alert.drugName);
+  if (alert.changeType === "removed" || alert.newMonthlyCost == null) {
+    return `${alert.patientName}'s ${drug} was removed from the formulary. It was ${estMoney(alert.oldMonthlyCost)}/month.`;
+  }
+  return alertSentence(alert);
+}
+
 /** First name on the chart axis, unless two patients share it. */
 export function chartLabel(name: string, names: readonly string[]): string {
   const first = name.trim().split(/\s+/)[0] ?? name;

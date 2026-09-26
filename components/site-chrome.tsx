@@ -5,8 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { resetDemo } from "@/app/_lib/api";
 
-export const DEMO_RESET_EVENT = "ruined-demo-reset";
-
 const LINKS = [
   { href: "/", label: "Alerts" },
   { href: "/check", label: "Check a prescription" },
@@ -24,7 +22,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
     setResetError(null);
     try {
       await resetDemo();
-      window.dispatchEvent(new Event(DEMO_RESET_EVENT));
+      router.refresh();
       router.push("/");
     } catch (error: unknown) {
       setResetError(error instanceof Error ? error.message : "Could not reset the demo");

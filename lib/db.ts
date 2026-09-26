@@ -19,10 +19,31 @@ export interface OpenDbOptions {
   readOnly?: boolean;
 }
 
-export const DEFAULT_DB_PATH = path.join(process.cwd(), "data", "ruined.duckdb");
+// scenario.duckdb is the post-merge database: minimal patients, v1, and v2-cms.
+// data/ruined.duckdb is the pre-merge 20-patient file. It is not the app database.
+export const DEFAULT_DB_PATH = path.join(process.cwd(), "data", "scenario.duckdb");
 
 export function dbPath(): string {
   return process.env.RUINED_DB || DEFAULT_DB_PATH;
+}
+
+/**
+ * Open a temporary copy of the app database for read-only tests. Avoids fighting the
+ * Next.js server's write lock on data/scenario.duckdb (DuckDB allows one writer).
+ */
+export async function openDbSnapshot(label = "test"): Promise<{ db: Db; path: string }> {
+  const src = dbPath();
+  if (!fs.existsSync(src)) throw new Error(`Database not found: ${src}`);
+  const dest = `${src}.${label}.${process.pid}.duckdb`;
+  fs.copyFileSync(src, dest);
+  const db = await openDb({ path: dest, readOnly: true });
+  return { db, path: dest };
+}
+
+export async function closeDbSnapshot(handle: { db: Db; path: string }): Promise<void> {
+  await handle.db.close();
+  fs.rmSync(handle.path, { force: true });
+  fs.rmSync(`${handle.path}.wal`, { force: true });
 }
 
 function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {

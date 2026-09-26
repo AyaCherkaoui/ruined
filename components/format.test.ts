@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertSentence, chartLabel, displayDrugName, estMoney } from "./format";
+import { alertSentence, chartLabel, coverageChangeSentence, displayDrugName, estMoney } from "./format";
 
 describe("displayDrugName", () => {
   it("uses the brand in brackets", () => {
@@ -34,6 +34,20 @@ describe("alertSentence", () => {
         newMonthlyCost: 150.27,
       }),
     ).toBe("Evelyn Park's Myrbetriq went from est. $110.49 to est. $150.27/month");
+  });
+});
+
+describe("coverageChangeSentence", () => {
+  it("says when a drug was removed", () => {
+    expect(
+      coverageChangeSentence({
+        patientName: "Diane Whitfield",
+        drugName: "3 ML insulin aspart, human 100 UNT/ML Pen Injector [NovoLog]",
+        changeType: "removed",
+        oldMonthlyCost: 47,
+        newMonthlyCost: null,
+      }),
+    ).toBe("Diane Whitfield's NovoLog was removed from the formulary. It was est. $47.00/month.");
   });
 });
 
