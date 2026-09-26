@@ -11,6 +11,13 @@
  * Tradjenta + Jardiance, Lumigan + Edarbi, Toujeo, Myrbetriq + Synthroid); the other 13 take common
  * generics. Only non-SNP plans are used: dual-eligible / institutional plans have low-income-subsidy
  * cost sharing that plan-level estimates do not capture.
+ *
+ * `api` branch, task 1: 4 of the 13 generic-only patients (pt-009, pt-012, pt-018, pt-020) also take
+ * Rybelsus (oral semaglutide), added after it was found removed from EVERY roster plan's formulary in
+ * the real September 2026 CMS monthly PUF (data_version 'v2-cms', scripts/load_puf_monthly.py) --
+ * see PROGRESS.md task 1 and lib/patientAlerts.test.ts. 3 of those 4 cross the $50/mo "expensive"
+ * line on their own plan's v1 cost share even before the removal (pt-012's copay plan keeps her at
+ * exactly $47), which is why lib/patients.test.ts and lib/dashboard.test.ts now expect 10, not 7.
  */
 import { openDb } from "../lib/db";
 import { coverageForRxcuis, loadPlanContext } from "../lib/coverage";
@@ -47,6 +54,7 @@ const RX = {
   levothyroxine50: "966221", simvastatin20: "312961", clopidogrel75: "309362", glipizide5: "310490",
   rosuvastatin20: "859751", carvedilol12: "200032", pravastatin40: "904475", montelukast10: "200224",
   allopurinol100: "197319", finasteride5: "310346",
+  rybelsus14: "2200650", // added task 1 (api branch): removed from every roster plan's v2-cms (Sept 2026) formulary
 } as const;
 
 interface Seed {
@@ -79,13 +87,13 @@ const ROSTER: Seed[] = [
   { id: "pt-008", name: "Barbara Thompson", age: 72, language: "English", plan: PLANS.healthSpring,
     meds: [[RX.atorvastatin40, "40 mg at bedtime"], [RX.lisinopril20, "20 mg once daily"]] },
   { id: "pt-009", name: "Carlos Ramirez", age: 69, language: "Spanish", plan: PLANS.wellcareSimple,
-    meds: [[RX.metformin500, "500 mg twice daily"], [RX.glipizide5, "5 mg once daily"], [RX.losartan50, "50 mg once daily"]] },
+    meds: [[RX.metformin500, "500 mg twice daily"], [RX.glipizide5, "5 mg once daily"], [RX.losartan50, "50 mg once daily"], [RX.rybelsus14, "14 mg once daily"]] },
   { id: "pt-010", name: "Susan Miller", age: 66, language: "English", plan: PLANS.aetnaSignature,
     meds: [[RX.levothyroxine50, "50 mcg once daily"], [RX.amlodipine5, "5 mg once daily"], [RX.sertraline50, "50 mg once daily"], [RX.omeprazole20, "20 mg once daily"]] },
   { id: "pt-011", name: "William Brown", age: 85, language: "English", plan: PLANS.humanaGold,
     meds: [[RX.metoprolol50, "50 mg once daily"], [RX.furosemide40, "40 mg once daily"], [RX.lisinopril20, "20 mg once daily"], [RX.atorvastatin10, "10 mg at bedtime"]] },
   { id: "pt-012", name: "Fatima Ali", age: 70, language: "Arabic", plan: PLANS.humanaChoice,
-    meds: [[RX.metformin1000, "1000 mg twice daily"], [RX.simvastatin20, "20 mg at bedtime"], [RX.hctz25, "25 mg once daily"]] },
+    meds: [[RX.metformin1000, "1000 mg twice daily"], [RX.simvastatin20, "20 mg at bedtime"], [RX.hctz25, "25 mg once daily"], [RX.rybelsus14, "14 mg once daily"]] },
   { id: "pt-013", name: "Hyun-woo Kim", age: 76, language: "Korean", plan: PLANS.uhcGa2,
     meds: [[RX.amlodipine10, "10 mg once daily"], [RX.losartan50, "50 mg once daily"], [RX.rosuvastatin20, "20 mg at bedtime"]] },
   { id: "pt-014", name: "Patricia Johnson", age: 88, language: "English", plan: PLANS.anthem,
@@ -97,11 +105,11 @@ const ROSTER: Seed[] = [
   { id: "pt-017", name: "Thomas Anderson", age: 80, language: "English", plan: PLANS.clover,
     meds: [[RX.clopidogrel75, "75 mg once daily"], [RX.atorvastatin40, "40 mg at bedtime"], [RX.carvedilol12, "12.5 mg twice daily"], [RX.lisinopril20, "20 mg once daily"]] },
   { id: "pt-018", name: "Tran Van Nguyen", age: 75, language: "Vietnamese", plan: PLANS.devoted,
-    meds: [[RX.metformin500, "500 mg twice daily"], [RX.pravastatin40, "40 mg at bedtime"], [RX.losartan50, "50 mg once daily"]] },
+    meds: [[RX.metformin500, "500 mg twice daily"], [RX.pravastatin40, "40 mg at bedtime"], [RX.losartan50, "50 mg once daily"], [RX.rybelsus14, "14 mg once daily"]] },
   { id: "pt-019", name: "Ruth Cohen", age: 84, language: "English", plan: PLANS.kaiser,
     meds: [[RX.levothyroxine50, "50 mcg once daily"], [RX.allopurinol100, "100 mg once daily"], [RX.hctz25, "25 mg once daily"]] },
   { id: "pt-020", name: "Anita Sharma", age: 72, language: "Hindi", plan: PLANS.aarpSaver,
-    meds: [[RX.montelukast10, "10 mg once daily"], [RX.atorvastatin10, "10 mg at bedtime"], [RX.metformin500, "500 mg twice daily"]] },
+    meds: [[RX.montelukast10, "10 mg once daily"], [RX.atorvastatin10, "10 mg at bedtime"], [RX.metformin500, "500 mg twice daily"], [RX.rybelsus14, "14 mg once daily"]] },
 ];
 
 async function main() {

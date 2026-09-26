@@ -64,14 +64,17 @@ describe.skipIf(!hasDb)("seeded synthetic patients", () => {
     expect(patients.some((p) => p.plan.contractId.startsWith("H"))).toBe(true);
   });
 
-  it("puts 5 to 7 patients on expensive drugs (a med costing >= $50/month on their plan)", async () => {
+  it("puts 10 patients on expensive drugs (a med costing >= $50/month on their plan)", async () => {
+    // Originally 5-7 (task 6). The `api` branch's task 1 added Rybelsus (oral semaglutide, ~$960/mo
+    // retail) to 4 of the 13 generic-only patients (pt-009, pt-012, pt-018, pt-020), after finding
+    // it removed from every roster plan in the real September 2026 CMS monthly PUF -- see
+    // lib/patientAlerts.test.ts. 3 of those 4 cross $50/mo on their plan's v1 cost share (7 + 3 = 10).
     let expensive = 0;
     for (const p of patients) {
       const cov = await coverageForRxcuis(db, await loadPlanContext(db, p.plan), p.meds.map((m) => m.rxcui));
       if ([...cov.values()].some((c) => (c.estMonthlyCost ?? 0) >= 50)) expensive++;
     }
-    expect(expensive).toBeGreaterThanOrEqual(5);
-    expect(expensive).toBeLessThanOrEqual(7);
+    expect(expensive).toBe(10);
   });
 
   it("only prescribes drugs the patient's plan covers (so a v1 -> v2 tier change is a real change)", async () => {

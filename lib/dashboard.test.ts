@@ -90,12 +90,20 @@ describe.skipIf(!fs.existsSync(dbPath()))("buildDashboard (seeded Georgia roster
     await db.close();
   });
 
-  it("finds the 6 patients who are overpaying or carry a high-cost drug", async () => {
+  it("finds the 9 patients who are overpaying or carry a high-cost drug", async () => {
+    // 6 base cases (unchanged since task 8) + pt-009/pt-018/pt-020: the `api` branch's task 1
+    // added Rybelsus (oral semaglutide, ~$960/mo retail) to 4 generic-only patients after it was
+    // found removed from every roster plan in the real September 2026 CMS monthly PUF (see
+    // lib/patientAlerts.test.ts); 3 of the 4 cross HIGH_COST_MIN on their own plan's v1 cost share
+    // (pt-012's copay plan keeps her at exactly $47, still under $100, so she stays unflagged here).
     const d = await buildDashboard(db);
     expect(d.totalPatients).toBe(20);
-    expect(d.patientsOverpaying).toBe(6);
-    expect(d.atRisk.map((r) => r.patient.id)).toEqual(["pt-007", "pt-005", "pt-004", "pt-001", "pt-006", "pt-003"]);
-    expect(d.totalPotentialMonthlySavings).toBe(298.86); // 101.17 + 100.86 + 96.83
+    expect(d.patientsOverpaying).toBe(9);
+    expect(d.atRisk.map((r) => r.patient.id)).toEqual([
+      "pt-007", "pt-005", "pt-004", // ranked by alternative savings (unchanged)
+      "pt-020", "pt-009", "pt-001", "pt-006", "pt-003", "pt-018", // no alternative -> tied at 0, alphabetical by name
+    ]);
+    expect(d.totalPotentialMonthlySavings).toBe(298.86); // 101.17 + 100.86 + 96.83 (Rybelsus has no alternative -- see task 1)
   });
 
   it("Tradjenta -> Januvia for pt-004: $126.14 vs $29.31, saves $96.83", async () => {
@@ -117,9 +125,13 @@ describe.skipIf(!fs.existsSync(dbPath()))("buildDashboard (seeded Georgia roster
     }
   });
 
-  it("does not flag generic-only patients", async () => {
+  it("does not flag the patients whose meds are still all cheap generics", async () => {
+    // pt-009/pt-018/pt-020 are excluded here on purpose: task 1 gave them a genuinely expensive
+    // drug (Rybelsus), so they now belong in the flagged list above, not this one.
     const ids = (await buildDashboard(db)).atRisk.map((r) => r.patient.id);
-    for (let n = 8; n <= 20; n++) expect(ids).not.toContain(`pt-${String(n).padStart(3, "0")}`);
+    for (const id of ["pt-008", "pt-010", "pt-011", "pt-012", "pt-013", "pt-014", "pt-015", "pt-016", "pt-017", "pt-019"]) {
+      expect(ids).not.toContain(id);
+    }
   });
 
   it("every at-risk worst drug is one of the patient's own meds", async () => {
