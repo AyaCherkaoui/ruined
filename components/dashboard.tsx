@@ -26,17 +26,10 @@ export function Dashboard({
 
   return (
     <div className="min-h-full bg-white">
-      <div className="h-1.5 bg-teal-700" />
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-8 sm:px-6 sm:py-12">
         <header className="flex flex-col gap-8">
           <div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-medium tracking-wide text-teal-800">Medicare Part D</p>
-              <Link href="/" className="text-sm font-medium text-teal-800 underline-offset-4 hover:underline">
-                Coverage check
-              </Link>
-            </div>
-            <h1 className="mt-3 max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-neutral-950 sm:text-6xl">
+            <h1 className="max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-neutral-950 sm:text-6xl">
               How many patients have I financially ruined?
             </h1>
           </div>

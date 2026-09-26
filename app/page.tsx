@@ -1,5 +1,5 @@
-import { DoctorTool } from "@/components/doctor-tool";
+import { AlertInbox } from "@/components/alert-inbox";
 
 export default function Home() {
-  return <DoctorTool />;
+  return <AlertInbox />;
 }

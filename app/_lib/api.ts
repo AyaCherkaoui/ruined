@@ -1,11 +1,16 @@
-import { displayDrugName } from "../../components/format";
+import { displayDrugName, estMoney } from "../../components/format";
+import type { Digest, PatientAlert, PatientMessage } from "./alert-types";
 import type { Alternative, CheckResponse, Patient, Plan } from "@/lib/contract";
 
 /**
  * Search routes are still being built. While this is true, patient search, drug search,
  * and the upcoming-change list return local fixtures. Coverage checks always hit POST /api/check.
+ * Alert inbox routes use USE_ALERT_MOCKS the same way.
  */
 export const USE_MOCKS = true;
+
+/** Digest and alert actions. While true, they read and update an in-memory store. */
+export const USE_ALERT_MOCKS = true;
 
 export interface DrugHit {
   rxcui: string;
@@ -372,4 +377,336 @@ export async function getUpcoming(): Promise<UpcomingRisk[]> {
     ...risk,
     bestAlternative: risk.bestAlternative ? { ...risk.bestAlternative } : null,
   }));
+}
+
+const OPEN_ALERT_STATUSES = new Set<PatientAlert["status"]>(["new", "seen"]);
+
+function cloneAlert(alert: PatientAlert): PatientAlert {
+  return {
+    ...alert,
+    bestAlternative: alert.bestAlternative ? { ...alert.bestAlternative } : null,
+  };
+}
+
+function cents(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+function sumMoney(values: Array<number | null | undefined>): number {
+  const total = values.reduce<number>((sum, value) => sum + (value == null ? 0 : cents(value)), 0);
+  return total / 100;
+}
+
+function longDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function koreanDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return `${year}년 ${month}월 ${day}일`;
+}
+
+/** Savings are versus the post-change monthly cost, since that is the bill the switch avoids. */
+function coveredAlternative(
+  fields: Pick<Alternative, "rxcui" | "drugName" | "tier" | "estMonthlyCost" | "monthlySavings"> &
+    Partial<Pick<Alternative, "status" | "priorAuth" | "stepTherapy" | "quantityLimit">>,
+): Alternative {
+  return {
+    status: "covered",
+    priorAuth: false,
+    stepTherapy: false,
+    quantityLimit: false,
+    isEstimate: true,
+    ...fields,
+  };
+}
+
+function seedAlerts(): PatientAlert[] {
+  return [
+    {
+      id: "al-evelyn-myrbetriq",
+      patientId: "pt-007",
+      patientName: "Evelyn Park",
+      age: 83,
+      language: "Korean",
+      planName: "Humana Basic Rx",
+      rxcui: "1300803",
+      drugName: "24 HR mirabegron 50 MG Extended Release Oral Tablet [Myrbetriq]",
+      displayName: "Myrbetriq",
+      changeType: "tier_increase",
+      oldTier: 3,
+      newTier: 4,
+      oldMonthlyCost: 110.49,
+      newMonthlyCost: 150.27,
+      monthlyIncrease: 39.78,
+      percentIncrease: 36,
+      effectiveDate: "2027-01-01",
+      dataSource: "synthetic",
+      bestAlternative: coveredAlternative({
+        rxcui: "857560",
+        drugName: "trospium chloride 20 MG Oral Tablet",
+        tier: 1,
+        estMonthlyCost: 9.32,
+        monthlySavings: 140.95,
+      }),
+      status: "new",
+      switchedTo: null,
+    },
+    {
+      id: "al-harold-tradjenta",
+      patientId: "pt-004",
+      patientName: "Harold Bennett",
+      age: 81,
+      language: "English",
+      planName: "Humana Basic Rx",
+      rxcui: "1100706",
+      drugName: "linagliptin 5 MG Oral Tablet [Tradjenta]",
+      displayName: "Tradjenta",
+      changeType: "tier_increase",
+      oldTier: 3,
+      newTier: 4,
+      oldMonthlyCost: 126.14,
+      newMonthlyCost: 171.56,
+      monthlyIncrease: 45.42,
+      percentIncrease: 36,
+      effectiveDate: "2027-01-01",
+      dataSource: "synthetic",
+      bestAlternative: coveredAlternative({
+        rxcui: "665044",
+        drugName: "sitagliptin phosphate 50 MG Oral Tablet [Januvia]",
+        status: "restricted",
+        tier: 3,
+        quantityLimit: true,
+        estMonthlyCost: 29.31,
+        monthlySavings: 142.25,
+      }),
+      status: "new",
+      switchedTo: null,
+    },
+    {
+      id: "al-james-toujeo",
+      patientId: "pt-006",
+      patientName: "James Carter",
+      age: 77,
+      language: "English",
+      planName: "Humana Basic Rx",
+      rxcui: "2002420",
+      drugName: "3 ML insulin glargine 300 UNT/ML Pen Injector [Toujeo]",
+      displayName: "Toujeo",
+      changeType: "tier_increase",
+      oldTier: 3,
+      newTier: 4,
+      oldMonthlyCost: 274.82,
+      newMonthlyCost: 373.75,
+      monthlyIncrease: 98.93,
+      percentIncrease: 36,
+      effectiveDate: "2027-01-01",
+      dataSource: "synthetic",
+      bestAlternative: null,
+      status: "new",
+      switchedTo: null,
+    },
+    {
+      id: "al-patricia-gabapentin",
+      patientId: "pt-014",
+      patientName: "Patricia Johnson",
+      age: 88,
+      language: "English",
+      planName: "Anthem Medicare Advantage 2 (PPO)",
+      rxcui: "310431",
+      drugName: "gabapentin 300 MG Oral Capsule",
+      displayName: "gabapentin",
+      changeType: "removed",
+      oldTier: 2,
+      newTier: null,
+      oldMonthlyCost: 6.2,
+      newMonthlyCost: 28.4,
+      monthlyIncrease: 22.2,
+      percentIncrease: 358,
+      effectiveDate: "2027-01-01",
+      dataSource: "cms",
+      bestAlternative: null,
+      status: "new",
+      switchedTo: null,
+    },
+    {
+      id: "al-hyunwoo-rosuvastatin",
+      patientId: "pt-013",
+      patientName: "Hyun-woo Kim",
+      age: 76,
+      language: "Korean",
+      planName: "UHC Medicare Advantage GA-2 (PPO)",
+      rxcui: "859751",
+      drugName: "rosuvastatin calcium 20 MG Oral Tablet",
+      displayName: "rosuvastatin",
+      changeType: "new_prior_auth",
+      oldTier: 2,
+      newTier: 2,
+      oldMonthlyCost: 11.46,
+      newMonthlyCost: 11.46,
+      monthlyIncrease: null,
+      percentIncrease: null,
+      effectiveDate: "2027-01-01",
+      dataSource: "cms",
+      bestAlternative: coveredAlternative({
+        rxcui: "617311",
+        drugName: "atorvastatin 40 MG Oral Tablet",
+        tier: 1,
+        estMonthlyCost: 3.12,
+        monthlySavings: 8.34,
+      }),
+      status: "new",
+      switchedTo: null,
+    },
+  ];
+}
+
+let alertStore = seedAlerts();
+let messageStore = new Map<string, PatientMessage>();
+
+function requireAlert(id: string): PatientAlert {
+  const alert = alertStore.find((row) => row.id === id);
+  if (!alert) throw new Error("Alert not found");
+  return alert;
+}
+
+function buildDigest(): Digest {
+  const open = alertStore.filter((row) => OPEN_ALERT_STATUSES.has(row.status));
+  return {
+    totalAtRisk: new Set(open.map((row) => row.patientId)).size,
+    totalMonthlyIncrease: sumMoney(open.map((row) => row.monthlyIncrease)),
+    totalMonthlySavingsIfSwitched: sumMoney(open.map((row) => row.bestAlternative?.monthlySavings)),
+    alerts: alertStore.map(cloneAlert),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function englishMessage(alert: PatientAlert): string {
+  const first = alert.patientName.split(/\s+/)[0] ?? alert.patientName;
+  const when = longDate(alert.effectiveDate);
+  let change: string;
+  switch (alert.changeType) {
+    case "removed":
+      change = `${alert.displayName} will be removed from your ${alert.planName} plan on ${when}.`;
+      break;
+    case "new_prior_auth":
+      change = `${alert.displayName} will need prior authorization on your ${alert.planName} plan starting ${when}.`;
+      break;
+    case "new_step_therapy":
+      change = `${alert.displayName} will require step therapy on your ${alert.planName} plan starting ${when}.`;
+      break;
+    case "new_quantity_limit":
+      change = `${alert.displayName} will have a new quantity limit on your ${alert.planName} plan starting ${when}.`;
+      break;
+    default:
+      change = `${alert.displayName} on your ${alert.planName} plan is estimated to cost ${estMoney(alert.newMonthlyCost)} a month starting ${when}, up from ${estMoney(alert.oldMonthlyCost)}.`;
+  }
+  const cost =
+    alert.changeType === "tier_increase"
+      ? ""
+      : ` Estimated cost goes from ${estMoney(alert.oldMonthlyCost)} to ${estMoney(alert.newMonthlyCost)} a month.`;
+  const alternative = alert.bestAlternative
+    ? `We can switch you to ${displayDrugName(alert.bestAlternative.drugName)}, estimated at ${estMoney(alert.bestAlternative.estMonthlyCost)} a month.`
+    : "We do not have a cheaper covered alternative. Call the office and we can talk about prior authorization or a manufacturer assistance program.";
+  return `${first}, ${change}${cost} ${alternative}`;
+}
+
+function buildMessage(alert: PatientAlert): PatientMessage {
+  const englishText = englishMessage(alert);
+  if (alert.id === "al-evelyn-myrbetriq") {
+    const when = koreanDate(alert.effectiveDate);
+    const before = estMoney(alert.oldMonthlyCost);
+    const after = estMoney(alert.newMonthlyCost);
+    const alternative = estMoney(alert.bestAlternative?.estMonthlyCost);
+    return {
+      alertId: alert.id,
+      language: "Korean",
+      text: `에블린 님, ${when}부터 Humana Basic Rx의 Myrbetriq 약값이 오릅니다. 지금은 한 달에 ${before}이고, 변경 후에는 한 달에 ${after}입니다. trospium으로 바꾸시면 한 달에 ${alternative}로 예상됩니다. 궁금하신 점은 진료실로 전화해 주세요.`,
+      englishText: `Evelyn, starting ${longDate(alert.effectiveDate)}, Myrbetriq on your Humana Basic Rx plan is estimated to rise from ${before} to ${after} a month. Switching to trospium is estimated at ${alternative} a month. Please call the office if you have questions.`,
+      audioUrl: null,
+    };
+  }
+  if (alert.id === "al-hyunwoo-rosuvastatin" && alert.bestAlternative) {
+    return {
+      alertId: alert.id,
+      language: "Korean",
+      text: `현우 님, ${koreanDate(alert.effectiveDate)}부터 ${alert.planName}에서 ${alert.displayName}은 사전 승인이 필요합니다. 예상 비용은 한 달에 ${estMoney(alert.newMonthlyCost)}입니다. ${displayDrugName(alert.bestAlternative.drugName)}으로 바꾸시면 한 달에 ${estMoney(alert.bestAlternative.estMonthlyCost)}로 예상됩니다. 궁금하신 점은 진료실로 전화해 주세요.`,
+      englishText,
+      audioUrl: null,
+    };
+  }
+  return {
+    alertId: alert.id,
+    language: alert.language === "English" ? "English" : alert.language,
+    text: englishText,
+    englishText,
+    audioUrl: null,
+  };
+}
+
+/** GET /api/digest */
+export async function getDigest(): Promise<Digest> {
+  if (!USE_ALERT_MOCKS) return getJson<Digest>("/api/digest");
+  return buildDigest();
+}
+
+/** POST /api/alerts/[id]/switch  body: { rxcui } */
+export async function switchAlert(id: string, rxcui: string): Promise<PatientAlert> {
+  if (!USE_ALERT_MOCKS) {
+    return getJson<PatientAlert>(`/api/alerts/${encodeURIComponent(id)}/switch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rxcui }),
+    });
+  }
+  const alert = requireAlert(id);
+  alert.status = "switched";
+  alert.switchedTo = rxcui;
+  return cloneAlert(alert);
+}
+
+/** POST /api/alerts/[id]/dismiss */
+export async function dismissAlert(id: string): Promise<PatientAlert> {
+  if (!USE_ALERT_MOCKS) {
+    return getJson<PatientAlert>(`/api/alerts/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+  }
+  const alert = requireAlert(id);
+  alert.status = "dismissed";
+  return cloneAlert(alert);
+}
+
+/** POST /api/alerts/[id]/message */
+export async function createPatientMessage(id: string): Promise<PatientMessage> {
+  if (!USE_ALERT_MOCKS) {
+    return getJson<PatientMessage>(`/api/alerts/${encodeURIComponent(id)}/message`, { method: "POST" });
+  }
+  const existing = messageStore.get(id);
+  if (existing) return { ...existing };
+  const alert = requireAlert(id);
+  const message = buildMessage(alert);
+  messageStore.set(id, message);
+  alert.status = "patient_notified";
+  return { ...message };
+}
+
+/** POST /api/digest/email */
+export async function emailDigest(): Promise<{ sent: true }> {
+  if (!USE_ALERT_MOCKS) return getJson<{ sent: true }>("/api/digest/email", { method: "POST" });
+  return { sent: true };
+}
+
+/** POST /api/demo/reset */
+export async function resetDemo(): Promise<{ reset: true }> {
+  if (!USE_ALERT_MOCKS) return getJson<{ reset: true }>("/api/demo/reset", { method: "POST" });
+  alertStore = seedAlerts();
+  messageStore = new Map();
+  return { reset: true };
 }

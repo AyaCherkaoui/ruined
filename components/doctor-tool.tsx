@@ -1,16 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Check, Search, X } from "lucide-react";
-import {
-  checkDrug,
-  getUpcoming,
-  searchDrugs,
-  searchPatients,
-  type DrugHit,
-  type UpcomingRisk,
-} from "@/app/_lib/api";
+import { checkDrug, searchDrugs, searchPatients, type DrugHit } from "@/app/_lib/api";
 import type { Alternative, CheckResponse, Patient } from "@/lib/contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -19,15 +11,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { displayDrugName, estMoney, STATUS_STYLE } from "@/components/format";
 
 const MAX_OPTIONS = 8;
-
-function switchKey(patientId: string, rxcui: string) {
-  return `${patientId}:${rxcui}`;
-}
-
-function percentLabel(percent: number) {
-  const rounded = Math.round(percent);
-  return `${rounded > 0 ? "+" : ""}${rounded}%`;
-}
 
 function restrictionBadges(drug: {
   priorAuth: boolean;
@@ -185,10 +168,6 @@ function ComboBox<T>({
 }
 
 export function DoctorTool() {
-  const [upcoming, setUpcoming] = useState<UpcomingRisk[] | null>(null);
-  const [upcomingError, setUpcomingError] = useState<string | null>(null);
-  const [switched, setSwitched] = useState<Set<string>>(() => new Set());
-
   const [patientQuery, setPatientQuery] = useState("");
   const [patientOptions, setPatientOptions] = useState<Patient[]>([]);
   const [patientOpen, setPatientOpen] = useState(false);
@@ -210,22 +189,7 @@ export function DoctorTool() {
 
   const drugInputRef = useRef<HTMLInputElement>(null);
   const checkRequest = useRef(0);
-  const action = useRef(0);
   const resultRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancel = false;
-    getUpcoming()
-      .then((rows) => {
-        if (!cancel) setUpcoming(rows);
-      })
-      .catch((error: unknown) => {
-        if (!cancel) setUpcomingError(error instanceof Error ? error.message : "Could not load upcoming changes");
-      });
-    return () => {
-      cancel = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!patientOpen) return;
@@ -275,20 +239,7 @@ export function DoctorTool() {
     };
   }, [drugOpen, drugQuery, patient]);
 
-  const atRisk = upcoming === null ? null : Math.max(0, upcoming.length - switched.size);
-
-  function recordSwitch(patientId: string, rxcui: string) {
-    setSwitched((current) => {
-      const key = switchKey(patientId, rxcui);
-      if (current.has(key)) return current;
-      const next = new Set(current);
-      next.add(key);
-      return next;
-    });
-  }
-
   function clearPatient() {
-    action.current += 1;
     checkRequest.current += 1;
     setPatient(null);
     setPatientQuery("");
@@ -302,7 +253,6 @@ export function DoctorTool() {
   }
 
   function choosePatient(next: Patient) {
-    action.current += 1;
     checkRequest.current += 1;
     setPatient(next);
     setPatientQuery("");
@@ -338,75 +288,27 @@ export function DoctorTool() {
 
   function chooseDrug(drug: DrugHit) {
     if (!patient) return;
-    action.current += 1;
     setSelectedDrug(drug);
     setDrugQuery(drug.displayName);
     setDrugOpen(false);
     void runCheck(patient.id, drug.rxcui);
   }
 
-  async function openRisk(risk: UpcomingRisk) {
-    const actionId = ++action.current;
-    setPatientOpen(false);
-    setDrugOpen(false);
-    try {
-      const hits = await searchPatients(risk.patientName);
-      if (actionId !== action.current) return;
-      const match = hits.find((item) => item.id === risk.patientId);
-      if (!match) {
-        setCheckError("That patient is not on the roster.");
-        return;
-      }
-      setPatient(match);
-      setPatientQuery("");
-      setSelectedDrug({ rxcui: risk.rxcui, drugName: risk.drugName, displayName: risk.displayName });
-      setDrugQuery(risk.displayName);
-      void runCheck(match.id, risk.rxcui);
-    } catch (error: unknown) {
-      setCheckError(error instanceof Error ? error.message : "Could not open that patient");
-    }
-  }
-
   function prescribe(alternative: Alternative) {
     if (!patient || !check) return;
-    recordSwitch(patient.id, check.coverage.rxcui);
     setPrescribedRxcui(alternative.rxcui);
   }
 
-  const counterTone = atRisk === 0 ? "text-emerald-800" : "text-red-700";
-  const counterRule = atRisk === 0 ? "border-l-emerald-600" : "border-l-red-600";
-
   return (
-    <div className="min-h-full bg-white">
-      <div className="h-1.5 bg-teal-700" />
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
-        <header className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-medium tracking-wide text-teal-800">Medicare Part D</p>
-              <Link href="/dashboard" className="text-sm font-medium text-teal-800 underline-offset-4 hover:underline">
-                Coverage dashboard
-              </Link>
-            </div>
-            <h1 className="mt-3 max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-neutral-950 sm:text-5xl">
-              How many patients have I financially ruined?
-            </h1>
-          </div>
-          <Card className={`w-full shrink-0 border-l-4 lg:w-72 ${atRisk === null ? "border-l-neutral-300" : counterRule}`}>
-            <CardContent aria-live="polite" aria-atomic="true">
-              <p className={`text-7xl font-semibold tabular-nums tracking-tight ${atRisk === null ? "text-neutral-300" : counterTone}`}>
-                {atRisk === null ? "–" : atRisk}
-              </p>
-              <p className="text-lg text-neutral-800">{atRisk === 1 ? "patient at risk" : "patients at risk"}</p>
-            </CardContent>
-          </Card>
-        </header>
-        <p className="max-w-2xl text-sm leading-6 text-neutral-600">
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
+      <header>
+        <h1 className="text-4xl font-semibold tracking-tight text-neutral-950">Check a prescription</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-600">
           Every dollar amount is an estimate for a typical 30-day fill. Deductibles and coverage phases are not included.
         </p>
+      </header>
 
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,13fr)_minmax(0,7fr)]">
-          <section className="flex flex-col gap-8" aria-label="Coverage check">
+      <section className="flex flex-col gap-8" aria-label="Coverage check">
             <div className="flex flex-col gap-3">
               {patient ? (
                 <div>
@@ -518,43 +420,7 @@ export function DoctorTool() {
               </div>
             </div>
           </section>
-
-          <aside className="flex flex-col gap-3 lg:sticky lg:top-4" aria-labelledby="upcoming-heading">
-            <h2 id="upcoming-heading" className="text-xl font-semibold tracking-tight text-balance text-neutral-950">
-              At risk from upcoming plan changes (effective Jan 1, 2027)
-            </h2>
-            {upcomingError ? (
-              <Alert className="border-red-200 bg-red-50 text-red-900">
-                <AlertTitle>Upcoming changes could not be loaded</AlertTitle>
-                <AlertDescription className="text-red-900/80">{upcomingError}</AlertDescription>
-              </Alert>
-            ) : upcoming === null ? (
-              <Card>
-                <CardContent className="text-base text-neutral-600">Loading upcoming changes…</CardContent>
-              </Card>
-            ) : upcoming.length === 0 ? (
-              <Card>
-                <CardContent className="text-base text-emerald-800">No upcoming plan changes.</CardContent>
-              </Card>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {upcoming.map((risk) => (
-                  <li key={switchKey(risk.patientId, risk.rxcui)}>
-                    <RiskCard
-                      risk={risk}
-                      resolved={switched.has(switchKey(risk.patientId, risk.rxcui))}
-                      active={patient?.id === risk.patientId && selectedDrug?.rxcui === risk.rxcui}
-                      onOpen={() => void openRisk(risk)}
-                      onSwitch={() => recordSwitch(risk.patientId, risk.rxcui)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </aside>
-        </div>
-      </main>
-    </div>
+    </main>
   );
 }
 
@@ -628,79 +494,6 @@ function ResultCard({
             </ul>
           )}
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RiskCard({
-  risk,
-  resolved,
-  active,
-  onOpen,
-  onSwitch,
-}: {
-  risk: UpcomingRisk;
-  resolved: boolean;
-  active: boolean;
-  onOpen: () => void;
-  onSwitch: () => void;
-}) {
-  const alternative = risk.bestAlternative;
-  return (
-    <Card
-      className={`border-l-4 ${resolved ? "border-l-emerald-600 bg-emerald-50/60" : "border-l-amber-500"} ${active ? "ring-2 ring-teal-700" : ""}`}
-    >
-      <CardContent className="flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-teal-700"
-        >
-          <span className="flex items-start justify-between gap-2">
-            <span>
-              <span className="block text-lg font-semibold text-neutral-950">{risk.patientName}</span>
-              <span className="mt-0.5 block text-sm text-neutral-600">
-                {risk.age} · {risk.language}
-              </span>
-            </span>
-            {resolved ? (
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-800">
-                <Check className="size-4" aria-hidden />
-                Switched
-              </span>
-            ) : null}
-          </span>
-          <span className="mt-3 block text-base font-medium text-neutral-950">{risk.displayName}</span>
-          <span className="mt-1 block text-base tabular-nums">
-            <span className={resolved ? "text-neutral-500 line-through decoration-neutral-500" : "text-neutral-800"}>
-              {estMoney(risk.oldMonthlyCost)}
-            </span>
-            <span className="text-neutral-500" aria-hidden>
-              {" "}
-              →{" "}
-            </span>
-            <span className={resolved ? "text-neutral-500 line-through decoration-neutral-500" : "font-semibold text-red-700"}>
-              {estMoney(risk.newMonthlyCost)}
-            </span>
-            <span className={`ml-2 font-semibold ${resolved ? "text-neutral-500" : "text-red-700"}`}>
-              {percentLabel(risk.percentIncrease)}
-            </span>
-          </span>
-          {alternative ? (
-            <span className="mt-2 block text-sm text-neutral-800">
-              Switch to {displayDrugName(alternative.drugName)} · {estMoney(alternative.estMonthlyCost)}/mo · saves{" "}
-              {estMoney(alternative.monthlySavings)}/mo
-            </span>
-          ) : (
-            <span className="mt-2 block text-sm font-semibold text-red-700">No safe cheaper option found</span>
-          )}
-        </button>
-        {resolved ? null : (
-          <Button type="button" variant="outline" className="h-11 w-full" onClick={onSwitch}>
-            Switch now
-          </Button>
-        )}
       </CardContent>
     </Card>
   );
