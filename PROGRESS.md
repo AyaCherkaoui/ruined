@@ -33,7 +33,7 @@ they were for the existing frontend dashboard.
 | 1 | Real CMS monthly PUF as `v2-cms`; detect real adverse changes; reassign patients | done |
 | 2 | `alert_status` table; `/api/digest`, switch/dismiss/demo-reset | done |
 | 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | done |
-| 4 | `/api/digest/email` (Resend) | pending |
+| 4 | `/api/digest/email` (Resend) | done |
 
 ## Read this first (decisions that need a human)
 
@@ -372,6 +372,37 @@ template for every `ChangeType`, null-cost omission, a "no invented numbers" pro
 English-skips-Grok path, a successful translation, the number-mismatch fallback, and the
 missing-key error propagating unchanged).
 
+## Task 4 — doctor digest email via Resend (done)
+
+`POST /api/digest/email -> { sent: true, id }`. `lib/digestEmail.ts`'s `digestHtml(digest)` /
+`digestSubject(digest)` render straight from the already-computed `Digest` (built by
+`buildDigest()`, task 2) -- no new numbers, no LLM: a table of patient / drug / cost before /
+cost after / suggested switch / savings, plus the two digest totals in the header. Subject is
+exactly the instructed template: `` `${totalAtRisk} of your patients are affected by upcoming
+plan changes` ``. Patient/drug names are HTML-escaped (`&`, `<`, `>`) before being inlined, since
+they ultimately come from CMS/RxNorm free text, not from a fixed set of safe values.
+
+`lib/resend.ts`'s `ResendClient.send()` posts to Resend's `/emails` endpoint from
+`onboarding@resend.dev` (the shared sandbox sender named in the instructions -- needs no domain
+verification) and returns Resend's own message id, which the route passes through as `id`.
+
+**Same missing-key pattern as task 3**: `sendDigestEmail()` throws `MissingApiKeyError` for
+whichever of `DOCTOR_EMAIL` (checked first, since it's this task's own required setting) or
+`RESEND_API_KEY` (checked inside `ResendClient.send`, once `resend.send` is actually called) isn't
+set, mapped by `errorResponse` to a **503** with a clear message. Verified for real on port 3111
+with neither configured: `POST /api/digest/email` -> `503 {"error":"DOCTOR_EMAIL is not
+configured. Add it to .env to enable this feature."}`.
+
+Tests: `lib/resend.test.ts` (4, mocked fetch: missing key, correct from/to/subject/html payload +
+returned id, non-2xx -> `ResendError`, no id in response -> `ResendError`) and
+`lib/digestEmail.test.ts` (6: subject template including the zero-patients case, the rendered
+table has every column, null cost / no-alternative rows show an em dash rather than the string
+"null", HTML-escaping of `&`/`<`/`>` in patient and drug names, and `sendDigestEmail` end-to-end
+against a mocked `ResendClient`).
+
+**All four pivot tasks (0-4) are now done.** 219 tests passing, typecheck and lint clean, every
+new route re-verified over real HTTP on port 3111 after this task landed.
+
 ## Rebuild from scratch (the database and raw data are gitignored)
 
 ```
@@ -383,7 +414,7 @@ python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
 npm install && npm run warm-drugs -- --import-only # drug cache from data/drug_cache.jsonl (offline)
 npx tsx scripts/seed-patients.ts                   # 20 synthetic patients (4 reassigned Rybelsus, task 1)
 npx tsx scripts/make-v2.ts                         # synthetic v2 formulary, fallback for CHANGE_SOURCE=synthetic
-npm test                                           # 209 tests
+npm test                                           # 219 tests
 npm run dev                                        # API on :3000 (stop it before re-running any script above)
 ```
 
@@ -424,6 +455,8 @@ npm run dev                                        # API on :3000 (stop it befor
 34. `PatientMessage.language` reflects what `text` actually is, not what was requested: it is the patient's real language on a successful, number-verified translation, and `"English"` whenever translation was skipped (English-speaking patient) or the translation was discarded for changing a number.
 35. Grok/ElevenLabs model and voice ids (`grok-4-fast`, `eleven_multilingual_v2`, ElevenLabs' stock "Rachel" voice) are best-effort choices, not verified against a live key; all three are overridable via env (`XAI_MODEL`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`) without a code change.
 36. `POST /api/alerts/:id/message` sets status `"patient_notified"` but does not clear `switchedTo` -- the two facts ("doctor switched the med" and "patient was notified") are independent even though `AlertStatus` only stores one current status string.
+37. `POST /api/digest/email` sends to a single recipient (`DOCTOR_EMAIL`), not a list; the contract/task both describe one doctor's inbox, not a multi-recipient broadcast.
+38. The digest email includes every non-dismissed alert regardless of status (`new`, `seen`, `switched`, `patient_notified`) -- it's a record of everything currently affecting the doctor's patients, not just the unactioned ones (that distinction is what `totalAtRisk` is for).
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
