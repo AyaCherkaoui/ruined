@@ -128,3 +128,16 @@ CREATE TABLE IF NOT EXISTS patient_meds (
   drug_name  VARCHAR NOT NULL,
   dose       VARCHAR NOT NULL
 );
+
+-- ---------------------------------------------------------------------------------
+-- Alert workflow state (PatientAlert.status). Alerts themselves are computed fresh
+-- from the loaded data on every request (lib/patientAlerts.ts), not stored; this table
+-- holds only the doctor's action on each alert id. A missing row means status 'new'.
+-- ---------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS alert_status (
+  alert_id    VARCHAR PRIMARY KEY,
+  status      VARCHAR NOT NULL,
+  switched_to VARCHAR,
+  created_at  TIMESTAMP NOT NULL,
+  updated_at  TIMESTAMP NOT NULL
+);
