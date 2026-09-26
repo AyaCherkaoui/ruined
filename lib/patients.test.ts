@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Patient } from "./contract";
 import { coverageForRxcuis, loadPlanContext } from "./coverage";
 import { dbPath, openDb, type Db } from "./db";
-import { getPatient, listPatients } from "./patients";
+import { getPatient, listPatients, MAX_PATIENT_SEARCH, searchPatients } from "./patients";
 
 // The seeded synthetic roster (scripts/seed-patients.ts) against the real plan data.
 
@@ -88,5 +88,30 @@ describe.skipIf(!hasDb)("seeded synthetic patients", () => {
 
   it("uses patient ids that are visibly synthetic", () => {
     for (const p of patients) expect(p.id).toMatch(/^pt-\d{3}$/);
+  });
+
+  it("searchPatients matches names case-insensitively, substring anywhere in the name", async () => {
+    expect((await searchPatients("eve", 8, db)).map((p) => p.name)).toEqual(["Evelyn Park"]);
+    expect((await searchPatients("EVE", 8, db)).map((p) => p.name)).toEqual(["Evelyn Park"]);
+    expect((await searchPatients("Park", 8, db)).map((p) => p.name)).toEqual(["Evelyn Park"]);
+  });
+
+  it("searchPatients returns [] for no match or an empty/blank query", async () => {
+    expect(await searchPatients("zzznotaname", 8, db)).toEqual([]);
+    expect(await searchPatients("", 8, db)).toEqual([]);
+    expect(await searchPatients("   ", 8, db)).toEqual([]);
+  });
+
+  it("searchPatients caps results at the given limit (default 8)", async () => {
+    const uncapped = await searchPatients("a", 100, db);
+    expect(uncapped.length).toBeGreaterThan(MAX_PATIENT_SEARCH); // 16 of the 20 seeded names contain "a"
+    expect(await searchPatients("a", undefined, db)).toHaveLength(MAX_PATIENT_SEARCH);
+    expect(await searchPatients("a", 3, db)).toHaveLength(3);
+  });
+
+  it("searchPatients returns full Patient records (meds included), matching the contract shape", async () => {
+    const [evelyn] = await searchPatients("evelyn", 8, db);
+    expect(evelyn).toEqual(patients.find((p) => p.id === "pt-007"));
+    expect(evelyn.meds.length).toBeGreaterThan(0);
   });
 });

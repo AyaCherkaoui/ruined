@@ -1,7 +1,8 @@
 # PROGRESS
 
-Backend-only build on the `backend` branch (local commits, no push). Every coverage decision
-comes from our data + deterministic code, never an LLM.
+Backend-only build. Every coverage decision comes from our data + deterministic code, never an LLM.
+Tasks 1-8 were built on the `backend` branch (local commits, no push); Task 9 below is on the
+`api` branch (a separate worktree at `../ruined-api`), same rules.
 
 ## Status
 
@@ -15,6 +16,7 @@ comes from our data + deterministic code, never an LLM.
 | 6 | Seed 20 synthetic patients | done |
 | 7 | API routes | done |
 | 8 | Change tracker + /api/alerts | done |
+| 9 | Patient/drug search + /api/upcoming (`api` branch) | done |
 
 ## Read this first (decisions that need a human)
 
@@ -169,6 +171,26 @@ Operational notes: DuckDB allows **one writer process**, so a running `next dev`
 - **Alert rule**: only adverse changes, i.e. the drug moved to a higher tier or its estimated cost went up (improvements are not alerts). Sorted by cost increase, then patient, then drug. `GET /api/alerts` returns 7 alerts on the seeded data.
 - Tests (`lib/changes.test.ts`, 9 + 1 route test): a synthetic two-plan / two-formulary world covering cost increase, same-cost tier move (still an alert), improvement (no alert), unchanged drug, drug nobody takes, plan on an unchanged formulary, ordering, v1/v2 independence; plus pinned real-data checks (exactly 6 rows differ, nothing else differs, all 7 alerts).
 
+## Task 9 — patient/drug search + /api/upcoming (`api` branch, done)
+
+New contract types (added verbatim as specified): `DrugOption` and `UpcomingRisk` in `lib/contract.ts`.
+
+| Route | Returns | Notes |
+|-------|---------|-------|
+| `GET /api/patients/search?q=` | `Patient[]` | case-insensitive substring on name, max 8 (`lib/patients.ts`'s `searchPatients`) |
+| `GET /api/drugs/search?patientId=&q=` | `DrugOption[]` | max 10, scoped to that patient's plan **formulary** (`lib/drugSearch.ts`'s `searchPlanDrugs`), matched on the RxNorm name |
+| `GET /api/upcoming` | `UpcomingRisk[]` | one row per adverse v1 -> v2 change per patient, sorted by dollar increase (`lib/upcoming.ts`) |
+
+- **`searchPatients`**: generalized `lib/patients.ts`'s internal `load()` to take an optional name filter (`ILIKE '%q%'`) and a `LIMIT`, instead of adding a parallel code path. 400 if `q` is missing/blank; empty query -> `[]` at the library level too.
+- **`searchPlanDrugs`** lives in its own module (`lib/drugSearch.ts`), not `lib/drugs.ts`: it needs `loadPlanContext` from `lib/coverage.ts`, and `coverage.ts` already imports `lib/drugs.ts` (for `getDrug`) -- putting it in `drugs.ts` would create a circular import. `drugSearch.ts` sits above both, like `alternatives.ts` / `check.ts` / `changes.ts` already do.
+- **`displayName`** (both `DrugOption` and `UpcomingRisk`): "brand in brackets, else first three words" -- this is the **same rule the frontend branch already uses** (`components/format.ts`'s `displayDrugName`, e.g. `... [Myrbetriq]` -> `Myrbetriq`). Re-implemented in `lib/display.ts` rather than imported: `components/` is UI, out of scope for this build, and the backend can't depend on it. Kept deliberately tiny (pure string function) so the duplication is cheap and hard to drift.
+- **`/api/upcoming` reuses `lib/changes.ts`** as instructed: extracted the alert-matching loop (diff -> which patients/meds got worse) into `findAdverseChanges()`, which `buildAlerts` (Task 8) now also calls -- so /api/alerts and /api/upcoming can never disagree about *which* changes are adverse, only how they're presented. Verified this refactor is behavior-preserving: all of Task 8's existing tests (synthetic + the 7 pinned real alerts) still pass unchanged.
+- **`bestAlternative`** is `findAlternatives(patient.plan, rxcui, { dataVersion: 'v2' })` -- i.e. computed against the *upcoming* tier/cost, so the saving shown is "what you'd save switching now, before the hike lands," not against the current (v1) cost. On the real seeded data: Toujeo and Ozempic get `null` (insulin / GLP-1 -- no class-level alternatives, per Task 5's guardrails); Trulicity, Tradjenta, Myrbetriq and both lisinopril rows get a real switch.
+- **`effectiveDate = "2027-01-01"` is invented.** v2 (`scripts/make-v2.ts`, Task 8) is a synthetic change-tracker copy with no real CMS effective date attached to it; this is a placeholder date for the demo, hardcoded as `UPCOMING_EFFECTIVE_DATE` in `lib/upcoming.ts`. A real system would carry the actual CMS plan-year effective date through from wherever v2 comes from.
+- **`percentIncrease` is `null`** when either monthly cost is `null`, or the old cost is `0` (e.g. the two lisinopril alerts go $0 -> $1: a "percent increase" off a $0 base is undefined, not `Infinity`).
+- Tests: `lib/patients.test.ts` (+4), `lib/drugSearch.test.ts` (5, synthetic: match/case-insensitivity/displayName/plan-scoping/limit) + `lib/drugSearch.real.test.ts` (2, real: pt-007 "myr" -> Myrbetriq), `lib/upcoming.test.ts` (10: synthetic percent/sort/alternative-under-v2 logic + real pinned figures cross-checked against Task 8's alert numbers), `lib/api.test.ts` (+6 route-handler tests). 26 new tests, 164 total, all passing.
+- **Verified over real HTTP on port 3111** (`npx next dev -p 3111`, not `npm run dev`'s default port -- per instruction): `curl` against all three new routes plus the 400/404 error paths, output matched the direct-handler tests exactly (e.g. `/api/drugs/search?patientId=pt-007&q=myr` returned the same 3 Myrbetriq products, `/api/patients/search?q=eve` and `?q=EVE` both returned only Evelyn Park). Also ran a clean `next build`: all 3 new routes show up as dynamic (`ƒ`) alongside the existing ones.
+
 ## Rebuild from scratch (the database and raw data are gitignored)
 
 ```
@@ -178,7 +200,7 @@ python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
 npm install && npm run warm-drugs -- --import-only # drug cache from data/drug_cache.jsonl (offline)
 npx tsx scripts/seed-patients.ts                   # 20 synthetic patients
 npx tsx scripts/make-v2.ts                         # synthetic v2 formulary for the alerts demo
-npm test                                           # 138 tests
+npm test                                           # 164 tests
 npm run dev                                        # API on :3000 (stop it before re-running any script above)
 ```
 
@@ -207,6 +229,9 @@ npm run dev                                        # API on :3000 (stop it befor
 22. Fill quantity: the CMS file has no dose, so the 30-day quantity is a property of the drug (smallest quantity >= 20% of formularies agree on from their quantity limits; else 30 units oral / 1 unit other forms), capped by the plan's own QL. This makes a drug cost the same on every plan and avoids pricing Eliquis at 30, 60 or 74 tablets by plan. Overridable with `quantityPer30Days`.
 23. Alternatives are limited to a curated list of interchangeable ATC classes, no specialty tiers, no packs, and one worst-case product per ingredient (see Task 5). Brand -> exact generic is always allowed. This is more conservative than the literal spec ("same class") on purpose: the literal version produced dangerous suggestions on real data.
 24. `/api/patients/[id]` returns exactly the contract's `Patient`; coverage for a patient's meds is fetched with `POST /api/check` (one call per med), rather than inventing an extended patient type.
+25. `displayName`'s rule ("brand in brackets, else first three words") is duplicated between `lib/display.ts` (backend, Task 9) and `components/format.ts` (frontend branch's UI) on purpose, not shared: the backend build cannot import from `components/`.
+26. `UpcomingRisk.effectiveDate` is a hardcoded placeholder (`"2027-01-01"`), since the synthetic v2 (Task 8) carries no real CMS effective date.
+27. `UpcomingRisk.percentIncrease` is `null` (not `Infinity`) when the old cost was `$0` or either cost is unknown.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so

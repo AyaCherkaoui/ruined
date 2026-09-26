@@ -53,3 +53,15 @@ export interface CoverageAlert {
   oldMonthlyCost: number | null;
   newMonthlyCost: number | null;
 }
+
+export interface DrugOption { rxcui: string; drugName: string; displayName: string; }
+
+export interface UpcomingRisk {
+  patientId: string; patientName: string; age: number; language: string;
+  rxcui: string; drugName: string; displayName: string;
+  oldTier: number; newTier: number;
+  oldMonthlyCost: number | null; newMonthlyCost: number | null;
+  percentIncrease: number | null;
+  effectiveDate: string;
+  bestAlternative: Alternative | null;
+}

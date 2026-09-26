@@ -1,4 +1,4 @@
-import type { CoverageAlert } from "./contract";
+import type { CoverageAlert, CoverageResult, Patient } from "./contract";
 import { coverageForRxcuis, DEFAULT_DATA_VERSION, loadPlanContext } from "./coverage";
 import { getDb, type Db } from "./db";
 import { listPatients } from "./patients";
@@ -27,6 +27,45 @@ export async function diffFormularies(db: Db, from = DEFAULT_DATA_VERSION, to = 
   return rows.map((r) => ({ formularyId: r.formulary_id, rxcui: r.rxcui, oldTier: r.old_tier, newTier: r.new_tier }));
 }
 
+export interface AdverseChange {
+  patient: Patient;
+  rxcui: string;
+  /** Coverage under `from` / `to`. Both have a non-null tier (that's how a change is detected). */
+  oldCoverage: CoverageResult & { tier: number };
+  newCoverage: CoverageResult & { tier: number };
+}
+
+/**
+ * Every patient x med that got worse between two loaded versions: the drug moved to a higher
+ * tier, or its estimated monthly cost went up. Shared by /api/alerts (past-tense "here's what
+ * changed") and /api/upcoming (future-tense "here's what's about to change and what to do about it").
+ */
+export async function findAdverseChanges(db: Db, from = DEFAULT_DATA_VERSION, to = NEXT_DATA_VERSION): Promise<AdverseChange[]> {
+  const changes = await diffFormularies(db, from, to);
+  if (changes.length === 0) return [];
+  const changed = new Map(changes.map((c) => [`${c.formularyId}:${c.rxcui}`, c]));
+
+  const out: AdverseChange[] = [];
+  for (const patient of await listPatients(db)) {
+    const before = await loadPlanContext(db, patient.plan, from);
+    const after = await loadPlanContext(db, patient.plan, to);
+    const hit = patient.meds.filter((m) => changed.has(`${before.formularyId}:${m.rxcui}`));
+    if (hit.length === 0) continue;
+
+    const oldCov = await coverageForRxcuis(db, before, hit.map((m) => m.rxcui));
+    const newCov = await coverageForRxcuis(db, after, hit.map((m) => m.rxcui));
+    for (const med of hit) {
+      const o = oldCov.get(med.rxcui)!;
+      const n = newCov.get(med.rxcui)!;
+      if (o.tier === null || n.tier === null) continue;
+      const worse = n.tier > o.tier || (n.estMonthlyCost ?? 0) > (o.estMonthlyCost ?? 0);
+      if (!worse) continue;
+      out.push({ patient, rxcui: med.rxcui, oldCoverage: { ...o, tier: o.tier }, newCoverage: { ...n, tier: n.tier } });
+    }
+  }
+  return out;
+}
+
 /**
  * Alerts for patients whose meds got worse: the drug moved to a higher tier, or its estimated
  * monthly cost went up. Largest cost increase first. (The alert shape carries tiers, so removals and
@@ -34,36 +73,16 @@ export async function diffFormularies(db: Db, from = DEFAULT_DATA_VERSION, to = 
  */
 export async function buildAlerts(db?: Db, from = DEFAULT_DATA_VERSION, to = NEXT_DATA_VERSION): Promise<CoverageAlert[]> {
   const conn = db ?? (await getDb());
-  const changes = await diffFormularies(conn, from, to);
-  if (changes.length === 0) return [];
-  const changed = new Map(changes.map((c) => [`${c.formularyId}:${c.rxcui}`, c]));
-
-  const alerts: CoverageAlert[] = [];
-  for (const patient of await listPatients(conn)) {
-    const before = await loadPlanContext(conn, patient.plan, from);
-    const after = await loadPlanContext(conn, patient.plan, to);
-    const hit = patient.meds.filter((m) => changed.has(`${before.formularyId}:${m.rxcui}`));
-    if (hit.length === 0) continue;
-
-    const oldCov = await coverageForRxcuis(conn, before, hit.map((m) => m.rxcui));
-    const newCov = await coverageForRxcuis(conn, after, hit.map((m) => m.rxcui));
-    for (const med of hit) {
-      const o = oldCov.get(med.rxcui)!;
-      const n = newCov.get(med.rxcui)!;
-      if (o.tier === null || n.tier === null) continue;
-      const worse = n.tier > o.tier || (n.estMonthlyCost ?? 0) > (o.estMonthlyCost ?? 0);
-      if (!worse) continue;
-      alerts.push({
-        patientId: patient.id,
-        patientName: patient.name,
-        drugName: n.drugName,
-        oldTier: o.tier,
-        newTier: n.tier,
-        oldMonthlyCost: o.estMonthlyCost,
-        newMonthlyCost: n.estMonthlyCost,
-      });
-    }
-  }
+  const changes = await findAdverseChanges(conn, from, to);
+  const alerts: CoverageAlert[] = changes.map(({ patient, oldCoverage: o, newCoverage: n }) => ({
+    patientId: patient.id,
+    patientName: patient.name,
+    drugName: n.drugName,
+    oldTier: o.tier,
+    newTier: n.tier,
+    oldMonthlyCost: o.estMonthlyCost,
+    newMonthlyCost: n.estMonthlyCost,
+  }));
   const increase = (a: CoverageAlert) => (a.newMonthlyCost ?? 0) - (a.oldMonthlyCost ?? 0);
   return alerts.sort((a, b) => increase(b) - increase(a) || a.patientName.localeCompare(b.patientName) || a.drugName.localeCompare(b.drugName));
 }
