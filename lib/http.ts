@@ -12,11 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * A required external API key (XAI_API_KEY, ELEVENLABS_API_KEY, RESEND_API_KEY, ...) is not set.
- * Thrown by lib/grok.ts, lib/elevenlabs.ts and lib/resend.ts so a missing key is a clear 503, not
- * a crash -- tasks 3/4 are meant to "work automatically once the keys are added to .env".
- */
+/** A required external API key is not set. Kept generic so any future integration can throw it for a clear 503 instead of crashing. */
 export class MissingApiKeyError extends Error {
   constructor(public envVar: string) {
     super(`${envVar} is not configured. Add it to .env to enable this feature.`);

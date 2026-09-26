@@ -18,22 +18,75 @@ are on the `api` branch (a separate worktree at `../ruined-api`), same rules.
 | 8 | Change tracker + /api/alerts | done |
 | 9 | Patient/drug search + /api/upcoming (`api` branch) | done |
 
-## Pivot: proactive plan-change alerts (`api` branch, new task numbering 0-4)
+## Superseded: proactive plan-change alerts (`api` branch, old task numbering 0-4) -- REMOVED tonight
 
-The product direction changed: instead of a passive dashboard, the main feature is now proactively
-alerting doctors when a plan change hurts an EXISTING patient, and helping them act (switch the med,
-notify the patient by voice/text in their language, email the doctor a digest). This is a fresh
-Task 0-4 sequence layered on top of Tasks 1-9 above (same data, same `lib/coverage.ts` /
-`lib/alternatives.ts` engine) -- it does not replace `/api/alerts` or `/api/upcoming`, which stay as
-they were for the existing frontend dashboard.
+Earlier tonight this branch built a different pivot: instead of a passive dashboard, proactively
+alert doctors when a plan change hurts an existing patient, and help them act (switch the med,
+notify the patient by voice/text in their language via Grok + ElevenLabs, email the doctor a
+digest via Resend). All four tasks were completed, tested (mocked -- no live key was ever
+configured, so **no patient data was ever sent to Grok, ElevenLabs, or Resend**), and committed.
+
+| # | Task (old numbering) | Status |
+|---|------|--------|
+| 0 | Contract types (`PatientAlert`, `Digest`, `PatientMessage`, ...) | done, now removed |
+| 1 | Real CMS monthly PUF as `v2-cms`; detect real adverse changes; reassign patients | done, **kept** (see below) |
+| 2 | `alert_status` table; `/api/digest`, switch/dismiss/demo-reset | done, now removed |
+| 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | done, now removed |
+| 4 | `/api/digest/email` (Resend) | done, now removed |
+
+**Tonight's new sponsor direction (Impiricus) supersedes this entirely**: minimal patient data --
+"nothing else about the patient, ever" -- and the old task 0 contract types all stored `age` and
+`language` directly (`PatientAlert.age`, `.language`; the Grok translation feature's entire reason
+to exist was per-patient language). Since the new direction says to remove age/language
+"everywhere," this feature has no data left to run on. I removed it rather than leave it dead and
+half-working:
+- `lib/{grok,elevenlabs,resend,message,patientAlerts,alertStatus,digest,digestEmail,drugSearch,upcoming,check,dashboard,patients,changes}.ts` (+ their tests) and `lib/api.test.ts`
+- `app/api/{alerts,check,dashboard,demo,digest,drugs,patients,upcoming}/**`
+- `scripts/{seed-patients,make-v2,find-cms-changes}.ts`
+
+All of this is still in git history on this branch (nothing force-pushed, nothing pushed at all --
+no remote exists for `api`), so it is fully recoverable if the notification/digest direction comes
+back. **Kept and reused**: `v1` and the real CMS monthly PUF as `v2-cms` (old task 1's real data --
+see Task 1 below, this is exactly the comparison the new direction asks for), and the core
+deterministic engine (`lib/coverage.ts`, `lib/alternatives.ts`, `lib/drugs.ts`, `lib/rxnav.ts`,
+`lib/db.ts`, `lib/display.ts`) which never touched patients at all.
+
+## Pivot: minimal patient data, one-drug pipeline (`api` branch, new task numbering 0-5)
+
+New sponsor direction (Impiricus): minimal patient data, and prove the pipeline end to end with
+**one** drug before adding others. See `DATA_MODEL.md` for the schema. Port 3111.
 
 | # | Task | Status |
 |---|------|--------|
-| 0 | Contract types (`PatientAlert`, `Digest`, `PatientMessage`, ...) | done |
-| 1 | Real CMS monthly PUF as `v2-cms`; detect real adverse changes; reassign patients | done |
-| 2 | `alert_status` table; `/api/digest`, switch/dismiss/demo-reset | done |
-| 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | done |
-| 4 | `/api/digest/email` (Resend) | done |
+| 0 | `DATA_MODEL.md` + new tables + `lib/contract.ts` (`Patient`, `Doctor`, `Prescription`, `CoverageChange`) | done |
+| 1 | Pick the drug: real v1 vs v2-cms evidence | done |
+| 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | in progress |
+| 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | not started |
+| 4 | `scripts/e2e.ts` + tests | not started |
+| 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | not started |
+
+### Task 0 -- data model + contract (done)
+
+Schema in `data/schema.sql` (see `DATA_MODEL.md` for the full description): added `doctors`,
+redefined `patients` to `(id, full_name)` only, added `patient_coverage` (the plan enrollment that
+used to be columns on `patients`), `prescriptions` (replaces `patient_meds`), `coverage_changes`,
+`patient_alerts`; redefined `data_versions` to `(id, source, release_date, file_hash, loaded_at)`
+(same `id` values -- `'v1'`, `'v2-cms'` -- that `plans`/`formulary`/etc already use as
+`data_version`, just now with metadata attached). Dropped `patient_meds` and `alert_status`.
+
+`lib/contract.ts`: `Patient = { id, fullName }`; removed `age`/`language` from every type that had
+them (`Patient`, the old `PatientAlert`/`UpcomingRisk`, all now gone); added `Doctor`,
+`Prescription`, `CoverageChange`; redefined `PatientAlert` to match the new `patient_alerts` table
+(joined with `patientName`/`drugName` for readability, since the DB row itself only carries ids).
+Kept `Plan`, `CoverageResult`, `Alternative` (used internally by the reused coverage/alternatives
+engine) and `ChangeType` (same five values as before: `removed`, `tier_increase`,
+`new_prior_auth`, `new_step_therapy`, `new_quantity_limit`).
+
+**One-time manual migration** (not part of `schema.sql`, which only ever does
+`CREATE TABLE IF NOT EXISTS` and so cannot change an existing table's columns): dropped the old
+`patients`, `patient_meds`, `alert_status`, `data_versions` tables from the already-loaded local
+`data/ruined.duckdb` once by hand, then reopened so the new schema created them fresh. A from-
+scratch rebuild never needs this step.
 
 ## Read this first (decisions that need a human)
 

@@ -71,17 +71,27 @@ export async function addDrug(db: Db, d: DrugFixture, key: PlanKey = TEST_PLAN, 
   }
 }
 
-export async function addPatient(
-  db: Db,
-  p: { id: string; name: string; age?: number; language?: string },
-  plan: PlanKey,
-  meds: [rxcui: string, drugName: string][],
-) {
-  await db.run(
-    "INSERT INTO patients (id, name, age, language, contract_id, plan_id, segment_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-    [p.id, p.name, p.age ?? 70, p.language ?? "English", plan.contractId, plan.planId, plan.segmentId],
-  );
-  for (const [rxcui, drugName] of meds) {
-    await db.run("INSERT INTO patient_meds (patient_id, rxcui, drug_name, dose) VALUES ($1, $2, $3, '1 daily')", [p.id, rxcui, drugName]);
-  }
+export async function addDoctor(db: Db, id: string, fullName: string, phone: string | null = null) {
+  await db.run("INSERT INTO doctors (id, full_name, phone) VALUES ($1, $2, $3)", [id, fullName, phone]);
+}
+
+/** Minimal patient (id + fullName only) enrolled in `plan`. */
+export async function addPatient(db: Db, id: string, fullName: string, plan: PlanKey = TEST_PLAN) {
+  await db.run("INSERT INTO patients (id, full_name) VALUES ($1, $2)", [id, fullName]);
+  await db.run("INSERT INTO patient_coverage (patient_id, contract_id, plan_id, segment_id) VALUES ($1, $2, $3, $4)", [
+    id,
+    plan.contractId,
+    plan.planId,
+    plan.segmentId,
+  ]);
+}
+
+export async function addPrescription(db: Db, id: string, patientId: string, doctorId: string, rxcui: string, startedAt = "2026-01-01") {
+  await db.run("INSERT INTO prescriptions (id, patient_id, doctor_id, rxcui, started_at) VALUES ($1, $2, $3, $4, $5)", [
+    id,
+    patientId,
+    doctorId,
+    rxcui,
+    startedAt,
+  ]);
 }

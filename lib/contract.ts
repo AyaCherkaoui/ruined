@@ -7,13 +7,24 @@ export interface Plan {
   planName: string;
 }
 
+// A patient is an id and a name. Nothing else about the patient, ever -- see DATA_MODEL.md.
 export interface Patient {
   id: string;
-  name: string;
-  age: number;
-  language: string;
-  plan: Plan;
-  meds: { rxcui: string; drugName: string; dose: string }[];
+  fullName: string;
+}
+
+export interface Doctor {
+  id: string;
+  fullName: string;
+  phone: string | null;
+}
+
+export interface Prescription {
+  id: string;
+  patientId: string;
+  doctorId: string;
+  rxcui: string;
+  startedAt: string; // ISO date
 }
 
 export interface CoverageResult {
@@ -32,57 +43,49 @@ export interface Alternative extends CoverageResult {
   monthlySavings: number;
 }
 
-export interface CheckResponse {
-  coverage: CoverageResult;
-  alternatives: Alternative[];
+export type ChangeType = "removed" | "tier_increase" | "new_prior_auth" | "new_step_therapy" | "new_quantity_limit";
+
+// Matches the coverage_changes table (see DATA_MODEL.md). drugName is joined in for
+// readability, not a stored column.
+export interface CoverageChange {
+  id: string;
+  fromVersion: string;
+  toVersion: string;
+  formularyId: string;
+  rxcui: string;
+  drugName: string;
+  changeType: ChangeType;
+  oldTier: number | null;
+  newTier: number | null;
+  oldPriorAuth: boolean;
+  newPriorAuth: boolean;
+  oldStepTherapy: boolean;
+  newStepTherapy: boolean;
+  oldQuantityLimit: boolean;
+  newQuantityLimit: boolean;
+  detectedAt: string;
 }
 
-export interface DashboardResponse {
-  totalPatients: number;
-  patientsOverpaying: number;
-  totalPotentialMonthlySavings: number;
-  atRisk: { patient: Patient; worstDrug: CoverageResult; bestAlternative: Alternative | null }[];
-}
+export type PatientAlertStatus = "new" | "seen" | "switched" | "dismissed";
 
-export interface CoverageAlert {
+// Matches the patient_alerts table, joined with the patient's full name and the
+// drug/change details a doctor needs to act (see DATA_MODEL.md). Only id + fullName
+// ever identify the patient.
+export interface PatientAlert {
+  id: string;
+  changeId: string;
+  changeType: ChangeType;
   patientId: string;
   patientName: string;
+  prescriptionId: string;
+  rxcui: string;
   drugName: string;
-  oldTier: number;
-  newTier: number;
+  contractId: string;
+  planId: string;
   oldMonthlyCost: number | null;
   newMonthlyCost: number | null;
-}
-
-export interface DrugOption { rxcui: string; drugName: string; displayName: string; }
-
-export interface UpcomingRisk {
-  patientId: string; patientName: string; age: number; language: string;
-  rxcui: string; drugName: string; displayName: string;
-  oldTier: number; newTier: number;
-  oldMonthlyCost: number | null; newMonthlyCost: number | null;
-  percentIncrease: number | null;
-  effectiveDate: string;
-  bestAlternative: Alternative | null;
-}
-
-export type ChangeType = "tier_increase" | "removed" | "new_prior_auth" | "new_step_therapy" | "new_quantity_limit";
-export type AlertStatus = "new" | "seen" | "switched" | "patient_notified" | "dismissed";
-export interface PatientAlert {
-  id: string; patientId: string; patientName: string; age: number; language: string; planName: string;
-  rxcui: string; drugName: string; displayName: string;
-  changeType: ChangeType;
-  oldTier: number | null; newTier: number | null;
-  oldMonthlyCost: number | null; newMonthlyCost: number | null;
-  monthlyIncrease: number | null; percentIncrease: number | null;
-  effectiveDate: string; dataSource: "cms" | "synthetic";
-  bestAlternative: Alternative | null;
-  status: AlertStatus; switchedTo: string | null;
-}
-export interface Digest {
-  totalAtRisk: number; totalMonthlyIncrease: number; totalMonthlySavingsIfSwitched: number;
-  alerts: PatientAlert[]; generatedAt: string;
-}
-export interface PatientMessage {
-  alertId: string; language: string; text: string; englishText: string; audioUrl: string | null;
+  bestAlternativeRxcui: string | null;
+  bestAlternativeCost: number | null;
+  status: PatientAlertStatus;
+  createdAt: string;
 }
