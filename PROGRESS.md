@@ -12,7 +12,7 @@ comes from our data + deterministic code, never an LLM.
 | 3 | Drug normalizer (RxNav / RxClass) + drugs cache | done |
 | 4 | checkCoverage + tests | done |
 | 5 | findAlternatives + tests | done |
-| 6 | Seed 20 synthetic patients | pending |
+| 6 | Seed 20 synthetic patients | done |
 | 7 | API routes | pending |
 | 8 | Change tracker + /api/alerts | pending |
 
@@ -115,6 +115,15 @@ These are class-level suggestions for the prescriber to review, not validated cl
 
 Tests: `lib/alternatives.test.ts` (22, synthetic plan with numbers we control: ordering, dedupe, worst-case, cheaper-only, packs, class/specialty guardrails, generic exemption) and `lib/alternatives.real.test.ts` (9, real data: verified examples plus a property test over ~300 real drugs on two plans checking every rule at once).
 
+## Task 6 — 20 synthetic patients (done)
+
+`npx tsx scripts/seed-patients.ts` (idempotent; deterministic; stop any dev server first, DuckDB allows one writer) fills `patients` + `patient_meds` (schema in `data/schema.sql`). Read side: `lib/patients.ts` (`listPatients`, `getPatient` -> the contract's `Patient`, plan names joined from the real CMS plan data).
+
+- 20 patients (`pt-001`..`pt-020`, names/ages/languages invented, ids visibly synthetic) on **16 real Georgia plans** (7 stand-alone PDPs' worth of variety + local MA HMOs/PPOs: Humana, Wellcare, AARP/UHC, Aetna, HealthSpring, Anthem, BlueAdvantage, Clover, Devoted, Kaiser, SilverScript), **2-4 meds each**, real RXCUIs with RxNorm names from the drug cache, doses as free text.
+- **7 patients on expensive drugs** (est. monthly cost >= $50 on their plan): Ozempic ($265, prior auth), Eliquis ($62), Trulicity ($249, PA), Tradjenta + Jardiance ($126 / $51), Lumigan + Edarbi ($53 / $108), Toujeo insulin ($275), Myrbetriq + Synthroid ($110 / $12.56). The other 13 take common generics (statins, ACE/ARBs, metformin, amlodipine, levothyroxine, PPIs...). Several expensive patients sit on the same coinsurance PDP (Humana Basic Rx) on purpose: same drugs, very different cost than on copay plans.
+- The script validates against the real tables before writing: plan exists, plan is **non-SNP**, every RXCUI is in the drug cache. Every seeded med is covered by its patient's plan in v1 (so a v2 tier change is a real change).
+- `lib/patients.test.ts` (9 tests): 20 unique ids, exact `Patient` shape, 2-4 distinct meds, real non-SNP GA plans with names from CMS, 10+ distinct plans, 5-7 expensive, all meds covered.
+
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
@@ -131,6 +140,8 @@ Tests: `lib/alternatives.test.ts` (22, synthetic plan with numbers we control: o
 12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
 13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
 14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
+17. Synthetic patients avoid SNP plans (D-SNP / C-SNP / I-SNP): their low-income-subsidy or institutional cost sharing is not in plan-level data, so estimates for them would mislead.
+18. "Expensive drug" for the seed = estimated patient cost >= $50/month on their plan. It is the patient's cost, not the drug's list price (on copay plans even a $500 drug shows a $47 copay).
 16. "Cheaper" alternatives must cost the patient strictly less; ties (same copay tier) are not suggestions.
 15. Estimates ignore: deductible, coverage phases / the 2026 $2,100 out-of-pocket cap, manufacturer discount program, low-income subsidy, mail-order/90-day pricing, pharmacy dispensing fees.
 11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.

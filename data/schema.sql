@@ -109,3 +109,22 @@ CREATE TABLE IF NOT EXISTS drug_aliases (
   rxcui  VARCHAR NOT NULL
 );
 
+-- ---------------------------------------------------------------------------------
+-- Synthetic patients (seeded by scripts/seed-patients.ts). No real patient data.
+-- ---------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS patients (
+  id          VARCHAR PRIMARY KEY,
+  name        VARCHAR NOT NULL,
+  age         INTEGER NOT NULL,
+  language    VARCHAR NOT NULL,
+  contract_id VARCHAR NOT NULL,
+  plan_id     VARCHAR NOT NULL,
+  segment_id  VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS patient_meds (
+  patient_id VARCHAR NOT NULL,
+  rxcui      VARCHAR NOT NULL,
+  drug_name  VARCHAR NOT NULL,
+  dose       VARCHAR NOT NULL
+);
