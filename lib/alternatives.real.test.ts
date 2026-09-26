@@ -128,7 +128,7 @@ describe.skipIf(!hasDb)("findAlternatives on real Georgia plans", () => {
   it("agrees with checkCoverage for the same drug (consistent numbers across the API)", async () => {
     const [alt] = await findAlternatives(HUMANA_BASIC, "966247", { db });
     const direct = await checkCoverage("S5884", "135", "000", alt.rxcui, { db });
-    const { monthlySavings: _savings, ...coverage } = alt;
+    const coverage = Object.fromEntries(Object.entries(alt).filter(([key]) => key !== "monthlySavings"));
     expect(coverage).toEqual(direct);
   });
 });

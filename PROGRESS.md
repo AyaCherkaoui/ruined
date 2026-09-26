@@ -16,6 +16,16 @@ comes from our data + deterministic code, never an LLM.
 | 7 | API routes | done |
 | 8 | Change tracker + /api/alerts | done |
 
+## Read this first (decisions that need a human)
+
+1. **Alternatives are not clinically validated.** On real plans the naive "same drug class" rule paired an AML drug with celecoxib and morphine with oxycodone. I restricted class-level swaps to a curated allowlist (`INTERCHANGEABLE_CLASSES` in `lib/alternatives.ts`), so the feature is deliberately narrower than the spec's wording. A pharmacist should review that list before anyone relies on it. (Task 5)
+2. **Every dollar figure is an estimate** (`isEstimate: true`), and the biggest assumption is the fill quantity (the CMS file has no dose). Deductibles, the $2,100 out-of-pocket cap, manufacturer discounts, and low-income-subsidy cost sharing are ignored, as instructed. (Task 4)
+3. **Two changes outside `/data /scripts /lib /app/api`, both needed to run at all:** `next.config.ts` (`serverExternalPackages` for DuckDB's native binding; without it every route 500s) and `package.json` (deps + scripts). (Task 7)
+4. **The record layout PDF is not inside the CMS zip** as the task said; it is published beside it and was downloaded and read. (Task 1)
+5. **v2 is synthetic** (labeled as such in the DB) and exists only to demo `/api/alerts`. (Task 8)
+6. **No Postgres yet:** `DATABASE_URL` was not set, so everything runs on a local DuckDB file with a portable schema. The Postgres adapter is not written. (Task 3)
+7. **Not verified by anyone but me:** all 138 tests pass on a from-scratch rebuild, but the clinical and cost-modeling judgments above are mine, not reviewed.
+
 ## Task 1 — download the SPUF (done)
 
 - Source: the cms.gov landing page is a JS app that 301-redirects to data.cms.gov, so the
@@ -176,26 +186,27 @@ npm run dev                                        # API on :3000 (stop it befor
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
 3. Raw files are read as Latin-1.
-4. "Georgia plans" = H plans with a GA county + R plans in MA region 8 (GA + SC, none exist in this file)
-   + S plans in PDP region 10. Plan-file county rows are collapsed to one row per plan.
+4. "Georgia plans" = H plans with a GA county + R plans in MA region 8 (GA + SC, none exist in this file) + S plans in PDP region 10. Plan-file county rows are collapsed to one row per plan.
 5. Plans with PLAN_SUPPRESSED_YN='Y' are excluded (they have no rows in any other file).
-6. Only the four requested tables are loaded; the insulin cost file, excluded-drug, indication-based and
-   pharmacy-network files are skipped (see known issues).
+6. Only the four requested tables are loaded; the insulin cost file, excluded-drug, indication-based and pharmacy-network files are skipped (see known issues).
 7. Amounts are stored as DOUBLE (not DECIMAL) so the Node client returns plain numbers; money is rounded to cents at the edge.
 8. Pricing keeps DAYS_SUPPLY 30 and 90 only (60-day rows dropped) — `--pricing-days` changes that.
 9. DATABASE_URL is not set on this machine, so the DuckDB file is the backend. A Postgres adapter for `lib/db.ts` is NOT written (it could not be tested here); the schema and all SQL are kept portable for it.
 10. "Same class" = same ATC level-4 class (finer than VA/EPC classes; ATC-3 would suggest SGLT2 inhibitors to a metformin patient).
+11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.
 12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
 13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
 14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
-20. Alerts cover tier changes only (the contract's `CoverageAlert` has tiers and costs, nothing else): a drug dropped from a formulary or a newly added PA / step-therapy rule is not reported. Those are arguably the worst changes for a patient; the type would need to grow to carry them.
-21. v2 exists only to demo the tracker; it changes formulary tiers, not prices or cost-sharing rules.
-19. Dashboard thresholds ($10 saving, $100 cost) are judgment calls, exported as constants in `lib/dashboard.ts`.
+15. Estimates ignore: deductible, coverage phases / the 2026 $2,100 out-of-pocket cap, manufacturer discount program, low-income subsidy, mail-order/90-day pricing, pharmacy dispensing fees.
+16. "Cheaper" alternatives must cost the patient strictly less; ties (same copay tier) are not suggestions.
 17. Synthetic patients avoid SNP plans (D-SNP / C-SNP / I-SNP): their low-income-subsidy or institutional cost sharing is not in plan-level data, so estimates for them would mislead.
 18. "Expensive drug" for the seed = estimated patient cost >= $50/month on their plan. It is the patient's cost, not the drug's list price (on copay plans even a $500 drug shows a $47 copay).
-16. "Cheaper" alternatives must cost the patient strictly less; ties (same copay tier) are not suggestions.
-15. Estimates ignore: deductible, coverage phases / the 2026 $2,100 out-of-pocket cap, manufacturer discount program, low-income subsidy, mail-order/90-day pricing, pharmacy dispensing fees.
-11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.
+19. Dashboard thresholds ($10 saving, $100 cost) are judgment calls, exported as constants in `lib/dashboard.ts`.
+20. Alerts cover tier changes only (the contract's `CoverageAlert` has tiers and costs, nothing else): a drug dropped from a formulary or a newly added PA / step-therapy rule is not reported. Those are arguably the worst changes for a patient; the type would need to grow to carry them.
+21. v2 exists only to demo the tracker; it changes formulary tiers, not prices or cost-sharing rules.
+22. Fill quantity: the CMS file has no dose, so the 30-day quantity is a property of the drug (smallest quantity >= 20% of formularies agree on from their quantity limits; else 30 units oral / 1 unit other forms), capped by the plan's own QL. This makes a drug cost the same on every plan and avoids pricing Eliquis at 30, 60 or 74 tablets by plan. Overridable with `quantityPer30Days`.
+23. Alternatives are limited to a curated list of interchangeable ATC classes, no specialty tiers, no packs, and one worst-case product per ingredient (see Task 5). Brand -> exact generic is always allowed. This is more conservative than the literal spec ("same class") on purpose: the literal version produced dangerous suggestions on real data.
+24. `/api/patients/[id]` returns exactly the contract's `Patient`; coverage for a patient's meds is fetched with `POST /api/check` (one call per med), rather than inventing an extended patient type.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so

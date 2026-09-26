@@ -120,14 +120,6 @@ describe("coverageStatus", () => {
 
 const hasDb = fs.existsSync(dbPath());
 
-interface Expect {
-  rxcui: string;
-  name: RegExp;
-  tier: number;
-  quantityLimit: boolean;
-  cost: number;
-}
-
 const DRUGS = {
   atorvastatin: "617311", // atorvastatin 40 MG Oral Tablet
   lisinopril: "314076", // lisinopril 10 MG Oral Tablet
