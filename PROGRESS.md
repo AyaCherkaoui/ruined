@@ -1,7 +1,8 @@
 # PROGRESS
 
-Backend-only build on the `backend` branch (local commits, no push). Every coverage decision
-comes from our data + deterministic code, never an LLM.
+Backend-only build. Every coverage decision comes from our data + deterministic code, never an LLM.
+Tasks 1-8 were built on the `backend` branch (local commits, no push); Task 9 and the pivot below
+are on the `api` branch (a separate worktree at `../ruined-api`), same rules.
 
 ## Status
 
@@ -15,6 +16,181 @@ comes from our data + deterministic code, never an LLM.
 | 6 | Seed 20 synthetic patients | done |
 | 7 | API routes | done |
 | 8 | Change tracker + /api/alerts | done |
+| 9 | Patient/drug search + /api/upcoming (`api` branch) | done |
+
+## Superseded: proactive plan-change alerts (`api` branch, old task numbering 0-4) -- REMOVED tonight
+
+Earlier tonight this branch built a different pivot: instead of a passive dashboard, proactively
+alert doctors when a plan change hurts an existing patient, and help them act (switch the med,
+notify the patient by voice/text in their language via Grok + ElevenLabs, email the doctor a
+digest via Resend). All four tasks were completed, tested (mocked -- no live key was ever
+configured, so **no patient data was ever sent to Grok, ElevenLabs, or Resend**), and committed.
+
+| # | Task (old numbering) | Status |
+|---|------|--------|
+| 0 | Contract types (`PatientAlert`, `Digest`, `PatientMessage`, ...) | done, now removed |
+| 1 | Real CMS monthly PUF as `v2-cms`; detect real adverse changes; reassign patients | done, **kept** (see below) |
+| 2 | `alert_status` table; `/api/digest`, switch/dismiss/demo-reset | done, now removed |
+| 3 | `/api/alerts/:id/message` (Grok translation + ElevenLabs speech) | done, now removed |
+| 4 | `/api/digest/email` (Resend) | done, now removed |
+
+**Tonight's new sponsor direction (Impiricus) supersedes this entirely**: minimal patient data --
+"nothing else about the patient, ever" -- and the old task 0 contract types all stored `age` and
+`language` directly (`PatientAlert.age`, `.language`; the Grok translation feature's entire reason
+to exist was per-patient language). Since the new direction says to remove age/language
+"everywhere," this feature has no data left to run on. I removed it rather than leave it dead and
+half-working:
+- `lib/{grok,elevenlabs,resend,message,patientAlerts,alertStatus,digest,digestEmail,drugSearch,upcoming,check,dashboard,patients,changes}.ts` (+ their tests) and `lib/api.test.ts`
+- `app/api/{alerts,check,dashboard,demo,digest,drugs,patients,upcoming}/**`
+- `scripts/{seed-patients,make-v2,find-cms-changes}.ts`
+
+All of this is still in git history on this branch (nothing force-pushed, nothing pushed at all --
+no remote exists for `api`), so it is fully recoverable if the notification/digest direction comes
+back. **Kept and reused**: `v1` and the real CMS monthly PUF as `v2-cms` (old task 1's real data --
+see Task 1 below, this is exactly the comparison the new direction asks for), and the core
+deterministic engine (`lib/coverage.ts`, `lib/alternatives.ts`, `lib/drugs.ts`, `lib/rxnav.ts`,
+`lib/db.ts`, `lib/display.ts`) which never touched patients at all.
+
+## Pivot: minimal patient data, one-drug pipeline (`api` branch, new task numbering 0-5)
+
+New sponsor direction (Impiricus): minimal patient data, and prove the pipeline end to end with
+**one** drug before adding others. See `DATA_MODEL.md` for the schema. Port 3111.
+
+| # | Task | Status |
+|---|------|--------|
+| 0 | `DATA_MODEL.md` + new tables + `lib/contract.ts` (`Patient`, `Doctor`, `Prescription`, `CoverageChange`) | done |
+| 1 | Pick the drug: real v1 vs v2-cms evidence | done |
+| 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | done |
+| 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | done |
+| 4 | `scripts/e2e.ts` + tests | not started |
+| 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | not started |
+
+### Task 0 -- data model + contract (done)
+
+Schema in `data/schema.sql` (see `DATA_MODEL.md` for the full description): added `doctors`,
+redefined `patients` to `(id, full_name)` only, added `patient_coverage` (the plan enrollment that
+used to be columns on `patients`), `prescriptions` (replaces `patient_meds`), `coverage_changes`,
+`patient_alerts`; redefined `data_versions` to `(id, source, release_date, file_hash, loaded_at)`
+(same `id` values -- `'v1'`, `'v2-cms'` -- that `plans`/`formulary`/etc already use as
+`data_version`, just now with metadata attached). Dropped `patient_meds` and `alert_status`.
+
+`lib/contract.ts`: `Patient = { id, fullName }`; removed `age`/`language` from every type that had
+them (`Patient`, the old `PatientAlert`/`UpcomingRisk`, all now gone); added `Doctor`,
+`Prescription`, `CoverageChange`; redefined `PatientAlert` to match the new `patient_alerts` table
+(joined with `patientName`/`drugName` for readability, since the DB row itself only carries ids).
+Kept `Plan`, `CoverageResult`, `Alternative` (used internally by the reused coverage/alternatives
+engine) and `ChangeType` (same five values as before: `removed`, `tier_increase`,
+`new_prior_auth`, `new_step_therapy`, `new_quantity_limit`).
+
+**One-time manual migration** (not part of `schema.sql`, which only ever does
+`CREATE TABLE IF NOT EXISTS` and so cannot change an existing table's columns): dropped the old
+`patients`, `patient_meds`, `alert_status`, `data_versions` tables from the already-loaded local
+`data/ruined.duckdb` once by hand, then reopened so the new schema created them fresh. A from-
+scratch rebuild never needs this step.
+
+### Task 1 -- the chosen drug: NovoLog FlexPen, insulin aspart (done)
+
+`v1` (real CMS quarterly SPUF, Q2 2026) and `v2-cms` (real CMS monthly PUF, September 2026) were
+already both loaded on this branch (old task 1 of the now-superseded pivot -- see above), which
+made this a direct SQL scan rather than a new download. Query: every (formulary, rxcui) on any
+Georgia plan where `v1` covered the drug and `v2-cms` either dropped it or made it worse
+(higher tier / new PA / new ST / new QL), filtered to drug name / class containing "insulin" or a
+known insulin brand.
+
+**Finding**: NovoLog (insulin aspart, human) was dropped **entirely** from the formulary between
+`v1` and `v2-cms` on 10 Georgia plans -- all 8 Kaiser Permanente Senior Advantage / Dual Essential
+plans under contract **H1170**, plus CareSource Dual Advantage / Dual Advantage Plus under
+**H8390** -- while remaining covered on 130+ other Georgia plans (Humana, Wellcare, Aetna, Anthem,
+UHC, AARP, HealthSpring, Devoted, BlueAdvantage, SilverScript, Clover, ...). Both NovoLog forms on
+the formulary lost coverage identically: the 3 mL FlexPen (rxcui `1653204`) and the 10 mL vial
+(rxcui `351926`). **Chosen drug: rxcui `1653204`** ("3 ML insulin aspart, human 100 UNT/ML Pen
+Injector [NovoLog]", SBD) -- the FlexPen, the more commonly prescribed outpatient form.
+
+Evidence, via `checkCoverage` itself (not a hand re-derivation) at each version:
+
+| | plan | formulary_id | v1 | v2-cms |
+|---|---|---|---|---|
+| **lost coverage** | `H1170`-`002` (Kaiser Permanente Senior Advantage Enhanced 1, HMO, non-SNP) | `00026405` | covered, tier 3, no PA/ST/QL, **est. $47.00/mo** | **not_covered** (tier null, cost null) |
+| **stayed covered** | `S5884`-`135` (Humana Basic Rx Plan, PDP, non-SNP) | `00026399` | covered, tier 3, no PA/ST/QL, **est. $133.56/mo** | unchanged: covered, tier 3, **est. $133.56/mo** |
+
+(Both plans' segment_id is `000`.) This is a real `removed` change under the new `ChangeType`
+enum -- exactly the shape the sponsor asked for ("an insulin brand that lost coverage ... on at
+least one plan while staying covered on at least one other plan"), so no fallback to Rybelsus was
+needed.
+
+### Task 2 -- pipeline: ingestRelease / detectChanges / matchPrescriptions (done)
+
+Three plain functions in `lib/pipeline/`, plus `scripts/run-pipeline.ts` that runs all three and
+prints a report. All three are idempotent; `lib/pipeline/pipeline.test.ts` (12 tests, synthetic
+two-version world) checks this directly, and so does running the real script twice in a row
+(same 6 `coverage_changes` rows, same `data_versions.loaded_at`, no duplicates).
+
+- **`ingestRelease(entry, db?)`** owns only the `data_versions` bookkeeping row (source, release
+  date, file hash, when we loaded it) -- it does **not** parse CMS files itself. It assumes the
+  `plans`/`formulary`/`beneficiary_cost`/`pricing` rows for that `dataVersion` id are already
+  loaded (by `scripts/load_spuf.py` / `scripts/load_puf_monthly.py`, run separately). Idempotent
+  on `fileHash`: same id + same hash is a no-op; same id + a different (non-null) hash replaces
+  the metadata row (but still doesn't reload the CMS tables -- that's a separate, deliberate step
+  so a metadata-only correction can't accidentally trigger an unwanted multi-GB reload).
+  **Extended the manifest entry shape** beyond the four fields in the task description --
+  `{ source, releaseDate, filePath, fileHash }` -- to add a required `dataVersion` field (e.g.
+  `'v1'`, `'v2-cms'`): without it there is no way to know which `data_version` label an entry's
+  hash/date belong to, and that label is what everything else (`plans.data_version`,
+  `detectChanges`) actually joins on. **Created `data/releases.json`** (did not exist yet) with
+  the two real releases already loaded on this branch: `v1`'s source zip was deleted before this
+  pipeline existed (raw CMS files are gitignored, not needed after loading), so its `fileHash` is
+  `null` -- a null hash is treated as "always matches an existing row by id," which keeps
+  `ingestRelease('v1', ...)` idempotent but means it can't detect a same-id content swap the way a
+  real hash can (fine here: nothing will ever re-supply that missing file). `v2-cms`'s hash is a
+  real sha256 of `data/raw/2026_20260916.zip` (still present).
+  **Fixed a real regression this change would otherwise have caused**: `load_spuf.py` and
+  `load_puf_monthly.py` used to `INSERT INTO data_versions VALUES (?, ?, now())` directly, a
+  3-column positional insert that would now fail against the redefined 5-column table (and its
+  renamed `data_version` -> `id` column). Removed that insert and the matching `DELETE FROM
+  data_versions` from both scripts' idempotent-reload loop -- `data_versions` bookkeeping is now
+  `ingestRelease`'s job alone.
+- **`detectChanges(fromVersion, toVersion, rxcuis?, db?)`** is the generalization of the old
+  (removed) `diffFormularies`/`findAdverseChanges`: one SQL `LEFT JOIN` of `formulary` at
+  `fromVersion` to `toVersion` on `(formulary_id, rxcui)`, scoped to `rxcuis` when given (else a
+  full scan). Only **adverse** changes are recorded -- `removed` (no matching row in `toVersion`),
+  `tier_increase`, `new_prior_auth`, `new_step_therapy`, `new_quantity_limit` -- improvements
+  aren't. **A drug with more than one simultaneous adverse change gets one `coverage_changes` row
+  per `change_type`** (the pipeline test's synthetic drug does exactly this: a tier increase and
+  a new prior-auth requirement in the same release produce two rows, not one row with an
+  arbitrarily chosen "primary" type). Each
+  row's id is a deterministic hash of `(fromVersion, toVersion, formularyId, rxcui, changeType)`,
+  which is what makes rerunning idempotent. A full unscoped scan of real `v1` -> `v2-cms` across
+  every Georgia formulary found **1,202 adverse changes** in ~1.2s -- fast enough that
+  `scripts/run-pipeline.ts` defaults to a full scan; pass specific rxcuis as argv to scope it (the
+  6 rows for the two NovoLog RXCUIs across the 3 formularies that dropped it).
+- **`matchPrescriptions(changeIds, db?)`**: for each `coverage_changes` row, joins
+  `prescriptions` (by `rxcui`) to `patient_coverage` to `plans` **at `toVersion`** (the patient's
+  *current* plan must point at the affected `formulary_id` for the change to reach them -- there
+  is no historical plan-enrollment tracking, see `DATA_MODEL.md`), then calls the existing
+  `checkCoverage` at `fromVersion`/`toVersion` for the cost before/after and `findAlternatives` at
+  `toVersion` for the suggested switch (its top result, or null) -- never recomputing either.
+  Verified by hand in the test: a tier-2-copay-$10 drug moving to tier-3-coinsurance-25% on a
+  $10/unit x 30-unit drug goes from an exact **$10.00 -> $75.00**. Idempotent the same way
+  (deterministic id from `(changeId, prescriptionId)`).
+
+### Task 3 -- scripts/seed-scenario.ts: 1 doctor, 5 patients (done)
+
+`npx tsx scripts/seed-scenario.ts` -- idempotent (checks each table before inserting; rerunning
+leaves exactly 1 doctor / 5 patients / 5 prescriptions, verified by running it twice and counting
+rows). All 5 patients are prescribed the chosen drug (rxcui `1653204`, NovoLog FlexPen):
+
+| patient | plan | v1 (before) | v2-cms (after) |
+|---|---|---|---|
+| pt-001 Diane Whitfield | `H1170`-`002` (Kaiser, lost coverage) | covered, tier 3, $47.00/mo | **not covered** |
+| pt-002 Marcus Reyes | `H1170`-`002` | covered, tier 3, $47.00/mo | **not covered** |
+| pt-003 Sandra Nguyen | `H1170`-`002` | covered, tier 3, $47.00/mo | **not covered** |
+| pt-004 Harold Betancourt | `S5884`-`135` (Humana, still covered) | covered, tier 3, $133.56/mo | unchanged, $133.56/mo |
+| pt-005 Rosa Lindqvist | `S5884`-`135` | covered, tier 3, $133.56/mo | unchanged, $133.56/mo |
+
+`started_at` is `2026-05-01` for everyone -- before both loaded releases, so the drug is a real,
+already-in-force prescription at both `v1` and `v2-cms`, not something that only exists because
+of how the demo was seeded. Patient/doctor names are invented; ids are visibly synthetic
+(`pt-00N`, `doc-001`, and `rx-00N` for `pt-00N`'s prescription, by construction).
 
 ## Frontend dashboard (`frontend` branch)
 
@@ -34,6 +210,11 @@ Home page only (`app/page.tsx`). It reads `GET /api/dashboard` and `GET /api/ale
 5. **v2 is synthetic** (labeled as such in the DB) and exists only to demo `/api/alerts`. (Task 8)
 6. **No Postgres yet:** `DATABASE_URL` was not set, so everything runs on a local DuckDB file with a portable schema. The Postgres adapter is not written. (Task 3)
 7. **Not verified by anyone but me:** all 138 tests pass on a from-scratch rebuild, but the clinical and cost-modeling judgments above are mine, not reviewed.
+8. **The real month-over-month CMS diff (pivot task 1) shows ZERO tier increases and ZERO new PA/step-therapy/quantity-limit rows anywhere in Georgia.** Comparing all 33 Georgia formularies between the Q2 2026 quarterly file and the September 2026 monthly file, the only kind of adverse change that occurs at all is a drug dropping off a formulary entirely (1,202 formulary rows across ~33-46 distinct removals per plan). This is consistent with CMS's mid-year "meaningful difference" rules, which restrict insurers from raising cost sharing or adding restrictions on an approved formulary once the plan year has started, but do allow removing a drug (e.g. a manufacturer discontinuation or a negotiated-price/supply change). **Practical effect: every real `PatientAlert` this build can currently produce has `changeType: "removed"`** -- `tier_increase` / `new_prior_auth` / `new_step_therapy` / `new_quantity_limit` are implemented and tested (synthetically) but have no real September-2026 example to point to. A full plan-year rollover (e.g. Jan 2026 -> Jan 2027 files, not available yet) would very likely show the other four. (Task 1)
+9. **4 patients were reassigned a real drug (Rybelsus, oral semaglutide) that was actually pulled from every one of our roster's 16 plans in that same monthly file**, because fewer than 4 of the original 20 were hit by the real diff (zero were, in fact -- see #8). This is a real, verified CMS change, not invented data; see Task 1 below for how it was picked and lib/patientAlerts.test.ts for the pinned figures. **Side effect:** 3 of those 4 patients now also cross the dashboard's $50/mo "expensive drug" line on their plan's ordinary (pre-removal) cost share, so `lib/patients.test.ts` / `lib/dashboard.test.ts`'s "how many expensive/overpaying patients" pinned counts moved from 7/6 to 10/9. This is a real consequence of realistic data, not a bug -- documented in both test files.
+10. **`PatientAlert.changeType` is one value, but one drug can have more than one real change at once** (e.g. a tier increase AND a new prior-auth requirement in the same monthly diff). Rather than force a priority order and drop information, `buildPatientAlerts` emits ONE ALERT PER (patient, drug, changeType) -- so such a drug produces two alerts sharing the same before/after tier and cost, with different ids and changeTypes. A same-tier cost increase with none of the 5 changeTypes present is invisible to this feed (see #8's note on the contract's 5 fixed types).
+11. **`effectiveDate` is not a real per-change date; the formulary files carry no such field.** For `dataSource: "cms"` it's the CMS monthly distribution's period start (`"2026-09-01"`, the closest real date CMS attaches to that snapshot); for `dataSource: "synthetic"` it's the same invented placeholder task 9 used (`"2027-01-01"`). (Task 1)
+12. **`GET /api/digest` is read-only.** Nothing in this build currently moves an alert from `"new"` to `"seen"` -- the contract's `AlertStatus` has a `"seen"` value but no task defines what sets it, so `totalAtRisk` in practice only ever counts `"new"` alerts until a future "mark seen" action exists (e.g. opening the alert's detail view). (Task 2)
 
 ## Task 1 — download the SPUF (done)
 
@@ -178,16 +359,228 @@ Operational notes: DuckDB allows **one writer process**, so a running `next dev`
 - **Alert rule**: only adverse changes, i.e. the drug moved to a higher tier or its estimated cost went up (improvements are not alerts). Sorted by cost increase, then patient, then drug. `GET /api/alerts` returns 7 alerts on the seeded data.
 - Tests (`lib/changes.test.ts`, 9 + 1 route test): a synthetic two-plan / two-formulary world covering cost increase, same-cost tier move (still an alert), improvement (no alert), unchanged drug, drug nobody takes, plan on an unchanged formulary, ordering, v1/v2 independence; plus pinned real-data checks (exactly 6 rows differ, nothing else differs, all 7 alerts).
 
+## Task 9 — patient/drug search + /api/upcoming (`api` branch, done)
+
+New contract types (added verbatim as specified): `DrugOption` and `UpcomingRisk` in `lib/contract.ts`.
+
+| Route | Returns | Notes |
+|-------|---------|-------|
+| `GET /api/patients/search?q=` | `Patient[]` | case-insensitive substring on name, max 8 (`lib/patients.ts`'s `searchPatients`) |
+| `GET /api/drugs/search?patientId=&q=` | `DrugOption[]` | max 10, scoped to that patient's plan **formulary** (`lib/drugSearch.ts`'s `searchPlanDrugs`), matched on the RxNorm name |
+| `GET /api/upcoming` | `UpcomingRisk[]` | one row per adverse v1 -> v2 change per patient, sorted by dollar increase (`lib/upcoming.ts`) |
+
+- **`searchPatients`**: generalized `lib/patients.ts`'s internal `load()` to take an optional name filter (`ILIKE '%q%'`) and a `LIMIT`, instead of adding a parallel code path. 400 if `q` is missing/blank; empty query -> `[]` at the library level too.
+- **`searchPlanDrugs`** lives in its own module (`lib/drugSearch.ts`), not `lib/drugs.ts`: it needs `loadPlanContext` from `lib/coverage.ts`, and `coverage.ts` already imports `lib/drugs.ts` (for `getDrug`) -- putting it in `drugs.ts` would create a circular import. `drugSearch.ts` sits above both, like `alternatives.ts` / `check.ts` / `changes.ts` already do.
+- **`displayName`** (both `DrugOption` and `UpcomingRisk`): "brand in brackets, else first three words" -- this is the **same rule the frontend branch already uses** (`components/format.ts`'s `displayDrugName`, e.g. `... [Myrbetriq]` -> `Myrbetriq`). Re-implemented in `lib/display.ts` rather than imported: `components/` is UI, out of scope for this build, and the backend can't depend on it. Kept deliberately tiny (pure string function) so the duplication is cheap and hard to drift.
+- **`/api/upcoming` reuses `lib/changes.ts`** as instructed: extracted the alert-matching loop (diff -> which patients/meds got worse) into `findAdverseChanges()`, which `buildAlerts` (Task 8) now also calls -- so /api/alerts and /api/upcoming can never disagree about *which* changes are adverse, only how they're presented. Verified this refactor is behavior-preserving: all of Task 8's existing tests (synthetic + the 7 pinned real alerts) still pass unchanged.
+- **`bestAlternative`** is `findAlternatives(patient.plan, rxcui, { dataVersion: 'v2' })` -- i.e. computed against the *upcoming* tier/cost, so the saving shown is "what you'd save switching now, before the hike lands," not against the current (v1) cost. On the real seeded data: Toujeo and Ozempic get `null` (insulin / GLP-1 -- no class-level alternatives, per Task 5's guardrails); Trulicity, Tradjenta, Myrbetriq and both lisinopril rows get a real switch.
+- **`effectiveDate = "2027-01-01"` is invented.** v2 (`scripts/make-v2.ts`, Task 8) is a synthetic change-tracker copy with no real CMS effective date attached to it; this is a placeholder date for the demo, hardcoded as `UPCOMING_EFFECTIVE_DATE` in `lib/upcoming.ts`. A real system would carry the actual CMS plan-year effective date through from wherever v2 comes from.
+- **`percentIncrease` is `null`** when either monthly cost is `null`, or the old cost is `0` (e.g. the two lisinopril alerts go $0 -> $1: a "percent increase" off a $0 base is undefined, not `Infinity`).
+- Tests: `lib/patients.test.ts` (+4), `lib/drugSearch.test.ts` (5, synthetic: match/case-insensitivity/displayName/plan-scoping/limit) + `lib/drugSearch.real.test.ts` (2, real: pt-007 "myr" -> Myrbetriq), `lib/upcoming.test.ts` (10: synthetic percent/sort/alternative-under-v2 logic + real pinned figures cross-checked against Task 8's alert numbers), `lib/api.test.ts` (+6 route-handler tests). 26 new tests, 164 total, all passing.
+- **Verified over real HTTP on port 3111** (`npx next dev -p 3111`, not `npm run dev`'s default port -- per instruction): `curl` against all three new routes plus the 400/404 error paths, output matched the direct-handler tests exactly (e.g. `/api/drugs/search?patientId=pt-007&q=myr` returned the same 3 Myrbetriq products, `/api/patients/search?q=eve` and `?q=EVE` both returned only Evelyn Park). Also ran a clean `next build`: all 3 new routes show up as dynamic (`ƒ`) alongside the existing ones.
+
+## Task 0 — contract types for the pivot (done, committed within 10 min as instructed)
+
+Added verbatim to `lib/contract.ts`: `ChangeType`, `AlertStatus`, `PatientAlert`, `Digest`,
+`PatientMessage`. Kept Task 9's `DrugOption` / `UpcomingRisk` and everything from Tasks 1-8 --
+nothing removed, only appended. Typechecked clean (the one pre-existing `tsc` error, `app/layout.tsx`'s
+`LayoutProps`, is a UI file outside this build's scope and predates this change).
+
+## Task 1 — real CMS monthly PUF as `v2-cms`; detect real changes; reassign patients (done)
+
+**Download & load** (mirrors Task 1/2's quarterly pipeline): `scripts/download_puf_monthly.py` reads
+the same `data.cms.gov/data.json` catalog for dataset title *"Monthly Prescription Drug Plan Formulary
+and Pharmacy Network Information"* and picks the newest by `temporal` end date. Newest at the time of
+this build: **`2026_20260916.zip`** (period 2026-09-01 to 2026-09-30, posted 2026-09-16, 2.19 GB) --
+newer than the Q2 2026 quarterly file used for v1, as required. `scripts/load_puf_monthly.py` loads it
+Georgia-only into `data_version = 'v2-cms'`, same filter rule as `load_spuf.py`.
+- **This monthly PUF has no pricing file** (confirmed against its own record-layout PDF,
+  `data/raw/PUFRecordLayout-2026.pdf`: no PRICING FILE section, unlike the quarterly SPUF's). Per the
+  instructions, `v2-cms` pricing is a straight copy of `v1`'s 1,061,320 pricing rows, logged both in
+  the script's own stdout and in `data_versions.source`. An NDC that appears only in the new formulary
+  (none do, in practice) would price as unknown/null, same as any other unpriced NDC.
+  Result: 152 plans, 112,513 formulary rows, 4,783 beneficiary_cost rows, 1,061,320 pricing rows (copied).
+- All 20 seeded patients' plans still exist in `v2-cms` (checked directly; see Known issues for what
+  happens to a patient whose plan doesn't -- `changesForPatient` in `lib/patientAlerts.ts` skips and
+  logs, it does not crash the whole feed).
+
+**Detecting adverse changes** (`lib/patientAlerts.ts`, replacing the Task 8 `diffFormularies`
+approach for this feed): rather than pre-computing a global (formulary_id, rxcui) diff and assuming
+formulary_id stays stable across periods, `changesForPatient` loads each patient's `PlanContext` under
+BOTH data versions and compares `coverageForRxcuis` output directly -- this works whether or not the
+plan's `formulary_id` changed (it happens to be stable for all 16 roster plans between these two
+files, verified directly, but the code no longer assumes it). A change only counts if the drug was
+already covered (`before.status !== "not_covered"`): a plan newly covering something a patient
+happens to list is not "a change that hurts an existing patient". Five checks map to the five
+`ChangeType`s (`removed`, `tier_increase`, `new_prior_auth`, `new_step_therapy`,
+`new_quantity_limit`); **more than one can fire for the same drug**, and each becomes its own
+`PatientAlert` (id `` `${patientId}:${rxcui}:${changeType}` ``) -- see "Read this first" #10.
+**Ran this for real first** (`scripts/find-cms-changes.ts`, kept for reproducibility) before writing
+any reassignment: it found the true Georgia-wide diff is 100% removals, 0 tier/PA/ST/QL changes (see
+"Read this first" #8), and it's how Rybelsus was found.
+
+**Patient reassignment** (instructed: "if fewer than 4 ... are affected, re-assign meds for some of the
+13 generic-only patients"): the real diff against the original 20 patients hit **zero**. Scanning all
+16 roster plans' formularies found **semaglutide 14 MG Oral Tablet [Rybelsus] (rxcui 2200650) removed
+from every single one of them** between v1 and v2-cms (along with dapagliflozin/Farxiga on several,
+and a long tail of vaccines/oncology/HIV drugs -- Rybelsus was the best candidate: common, oral,
+clinically coherent to add). Of the 13 generic-only patients, exactly 4 were already on metformin
+(pt-009 Carlos Ramirez, pt-012 Fatima Ali, pt-018 Tran Van Nguyen, pt-020 Anita Sharma) -- Rybelsus
+was added as their 4th med (`scripts/seed-patients.ts`, `RX.rybelsus14`), a clinically ordinary
+second-line oral agent for a metformin patient. **Evelyn Park (pt-007), Harold Bennett (pt-004) and
+James Carter (pt-006) were left untouched**, as instructed (they weren't reassignment candidates
+anyway -- they're in the 7-patient "expensive" group, not the 13). Re-ran `seed-patients.ts`; the real
+diff against the new roster is now exactly the 4 patients required:
+
+| patient | plan | v1 tier / cost | v2-cms |
+|---|---|---|---|
+| pt-009 Carlos Ramirez | Wellcare Simple Open (H0111-001) | tier 3, $238.41/mo (25% coinsurance) | removed |
+| pt-012 Fatima Ali | HumanaChoice (H5216-073) | tier 3, $47.00/mo (flat copay) | removed |
+| pt-018 Tran Van Nguyen | Devoted Choice (H5453-001) | tier 3, $182.28/mo (19% coinsurance) | removed |
+| pt-020 Anita Sharma | AARP Saver (S5921-355) | tier 3, $188.90/mo (18% coinsurance) | removed |
+
+All four had prior authorization + a quantity limit on Rybelsus in v1 (real CMS flags, unrelated to
+the removal). `bestAlternative` is `null` for all four: Rybelsus's real RxClass ATC-4 class (GLP-1
+analogues, A10BJ) is on `INTERCHANGEABLE_CLASSES`, but `findAlternatives` also requires the same
+RxNorm dose-form group, and the only other GLP-1s on these formularies (Ozempic, Trulicity) are
+injectables, not oral -- same guardrail that already makes Ozempic/Toujeo alternative-less in Task 9.
+
+**`CHANGE_SOURCE` switch** (`lib/patientAlerts.ts`'s `resolveChangeSource()`): env `CHANGE_SOURCE=cms`
+(or unset) -> compares v1 vs `v2-cms` (real), `dataSource: "cms"`, `effectiveDate: "2026-09-01"`.
+`CHANGE_SOURCE=synthetic` -> falls back to v1 vs Task 8's synthetic `v2`, `dataSource: "synthetic"`,
+`effectiveDate: "2027-01-01"` (unchanged from Task 9). Every `PatientAlert` and `Digest` alert carries
+its `dataSource`, so a UI can distinguish real CMS findings from the demo fallback.
+
+Tests: `lib/patientAlerts.test.ts` (15: `alertId`/`parseAlertId` round-trip, `resolveChangeSource`'s
+3 branches, a 10-drug synthetic world covering every `ChangeType` including the "not covered before"
+and "multiple changes on one drug" cases, `getPatientAlert` lookups, and a real-data block pinning
+the 4 Rybelsus alerts above). **Side effect on existing pinned tests, fixed in this task**:
+`lib/patients.test.ts` and `lib/dashboard.test.ts` had hardcoded "7 expensive / 6 overpaying" from
+Task 6/7; adding a real ~$960/mo drug to 4 patients pushed those to 10/9 (3 of the 4 cross the
+$50/mo line; pt-012's copay plan keeps her at exactly $47). Updated both with the real recomputed
+numbers and a comment explaining why -- this is correct behavior on more realistic data, not a bug.
+
+## Task 2 — alert workflow state + `/api/digest`, switch, dismiss, demo reset (done)
+
+`alert_status` table (`data/schema.sql`): `alert_id` (PK), `status`, `switched_to`, `created_at`,
+`updated_at`. Alerts themselves are never stored -- they're recomputed from the loaded data on every
+request (`buildPatientAlerts`); this table only remembers what a doctor DID about a given alert id. A
+missing row means `status: "new"`. `lib/alertStatus.ts`'s `setAlertStatus` does an `UPDATE` when a row
+exists (preserving `created_at`) and an `INSERT` otherwise -- **not** delete-then-reinsert like
+`lib/drugs.ts`'s `saveDrug`: round-tripping an existing row's `TIMESTAMP` value back out as a bound
+parameter throws `Cannot create values of type ANY` in `@duckdb/node-api` (`SqlValue` in `lib/db.ts`
+is only string/number/boolean/null). Found this by writing the test first and watching it fail with
+that exact error, then fixed with a plain `UPDATE`.
+
+| Route | Behavior |
+|---|---|
+| `GET /api/digest` | `Digest` -- dismissed alerts excluded entirely; `totalAtRisk` = count of `new`/`seen`; `totalMonthlyIncrease` / `totalMonthlySavingsIfSwitched` sum over the shown (non-dismissed) alerts, nulls as 0; read-only, no status side effects (see "Read this first" #12) |
+| `POST /api/alerts/:id/switch` | body `{ rxcui }` -> sets status `"switched"`, `switchedTo` = that rxcui; 400 if `rxcui` missing, 404 if the id doesn't parse or no longer names a real adverse change |
+| `POST /api/alerts/:id/dismiss` | sets status `"dismissed"`; same 404 rule |
+| `POST /api/demo/reset` | deletes every `alert_status` row (every alert back to `"new"`) -> `{ reset: true }` |
+
+`getPatientAlert(id)` (`lib/patientAlerts.ts`) parses the id back into patientId/rxcui/changeType,
+loads just that one patient, and recomputes -- it does not require scanning all 20 patients to answer
+one alert lookup. Switch/dismiss don't validate that `rxcui` is a real covered alternative (the
+doctor may pick any drug, not necessarily our `bestAlternative` suggestion); they do 404 on a
+made-up/stale alert id rather than silently writing a status for a change that isn't real.
+
+Tests: `lib/alertStatus.test.ts` (4: default/new, persists, updates-not-duplicates + preserves
+created_at, reset) and `lib/digest.test.ts` (7: dismissed exclusion, `totalAtRisk` counting,
+sum-with-nulls-as-0 for both totals, sort + status/switchedTo pass-through, empty-roster zeros).
+**Verified over real HTTP on port 3111**: `GET /api/digest` (4 real alerts), `POST .../switch` with a
+body, `POST .../dismiss`, a 404 on a bogus id, a 400 on a missing `rxcui`, `POST /api/demo/reset`, and
+confirmed the digest reflects each state change and resets cleanly afterward.
+
+## Task 3 — patient notification: Grok translation + ElevenLabs speech (done)
+
+`POST /api/alerts/:id/message -> PatientMessage`. Numbers never come from an LLM, per the core
+rule: `lib/message.ts`'s `buildEnglishText(alert)` is a plain deterministic template built only
+from `PatientAlert` fields (drug names, `effectiveDate`, `oldMonthlyCost`/`newMonthlyCost`,
+`bestAlternative`'s name/cost/savings) -- one branch per `ChangeType`, omitting a cost sentence
+entirely when a cost is `null` rather than printing "null". xAI Grok (`lib/grok.ts`) only ever
+translates that finished English sentence into the patient's language; it is never given raw
+numbers to compute or asked to phrase a dollar amount itself.
+
+- **Verification, not trust**: `numbersMatch()` extracts every digit run (`\d+(\.\d+)?`, so
+  `"2026-09-01"` -> `["2026","09","01"]`, `"$238.41"` -> `["238.41"]`) from both the English
+  template and the translation and compares them as a multiset. Any mismatch -- a mistranslated
+  digit, a dropped date, a "helpfully" localized decimal separator -- **falls back to the English
+  text** rather than risk a patient reading a wrong dollar figure. `language` on the returned
+  `PatientMessage` reflects what `text` actually is (`"English"` on fallback), not what was
+  requested.
+- **Skips Grok entirely for English-language patients** (`alert.language` case-insensitively
+  `"english"`) -- no network call, no verification needed, `text === englishText`.
+- **ElevenLabs** (`lib/elevenlabs.ts`) always uses one multilingual voice/model
+  (`eleven_multilingual_v2`, overridable via `ELEVENLABS_VOICE_ID` / `ELEVENLABS_MODEL`) on the
+  FINAL text (translated or English-fallback) -- one client handles every patient language. Saved
+  to `public/audio/<alertId>-<random>.mp3` (gitignored: generated, not source) and returned as
+  `/audio/<file>.mp3`, which Next serves directly from `/public`.
+- **Missing keys are a clear error, not a crash**: `GrokClient`/`ElevenLabsClient` throw a shared
+  `MissingApiKeyError` (`lib/http.ts`) when `XAI_API_KEY` / `ELEVENLABS_API_KEY` isn't set;
+  `errorResponse` maps it to **503** with the exact env var name. Verified for real on port 3111
+  with no keys configured: `POST .../message` on a real alert -> `503 {"error":"XAI_API_KEY is not
+  configured. Add it to .env to enable this feature."}`; a bogus alert id -> `404` (checked before
+  any external call is attempted). Once a real `XAI_API_KEY` is added to `.env`, an English-language
+  patient's request would still need `ELEVENLABS_API_KEY` and fail there instead with the same
+  clear-503 pattern (covered by the mocked unit test, not re-verified over HTTP since none of the
+  4 real alerts are on an English-speaking patient right now).
+- **Sets `status: "patient_notified"`** after a message is successfully built, preserving whatever
+  `switchedTo` was already recorded (a doctor can both switch the med and notify the patient; the
+  status enum only shows the latest action, but `switchedTo` isn't cleared by notifying).
+- Model/voice ids (`grok-4-fast`, `eleven_multilingual_v2`, the stock ElevenLabs voice id) are
+  **not verified against a live key** (none is configured yet) and are overridable by env var
+  (`XAI_MODEL`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`) without a code change if wrong.
+
+Tests (all against injected fake `fetch`, matching `lib/rxnav.test.ts`'s pattern -- no real network
+calls): `lib/grok.test.ts` (4), `lib/elevenlabs.test.ts` (3), `lib/message.test.ts` (12: the
+template for every `ChangeType`, null-cost omission, a "no invented numbers" property check, the
+English-skips-Grok path, a successful translation, the number-mismatch fallback, and the
+missing-key error propagating unchanged).
+
+## Task 4 — doctor digest email via Resend (done)
+
+`POST /api/digest/email -> { sent: true, id }`. `lib/digestEmail.ts`'s `digestHtml(digest)` /
+`digestSubject(digest)` render straight from the already-computed `Digest` (built by
+`buildDigest()`, task 2) -- no new numbers, no LLM: a table of patient / drug / cost before /
+cost after / suggested switch / savings, plus the two digest totals in the header. Subject is
+exactly the instructed template: `` `${totalAtRisk} of your patients are affected by upcoming
+plan changes` ``. Patient/drug names are HTML-escaped (`&`, `<`, `>`) before being inlined, since
+they ultimately come from CMS/RxNorm free text, not from a fixed set of safe values.
+
+`lib/resend.ts`'s `ResendClient.send()` posts to Resend's `/emails` endpoint from
+`onboarding@resend.dev` (the shared sandbox sender named in the instructions -- needs no domain
+verification) and returns Resend's own message id, which the route passes through as `id`.
+
+**Same missing-key pattern as task 3**: `sendDigestEmail()` throws `MissingApiKeyError` for
+whichever of `DOCTOR_EMAIL` (checked first, since it's this task's own required setting) or
+`RESEND_API_KEY` (checked inside `ResendClient.send`, once `resend.send` is actually called) isn't
+set, mapped by `errorResponse` to a **503** with a clear message. Verified for real on port 3111
+with neither configured: `POST /api/digest/email` -> `503 {"error":"DOCTOR_EMAIL is not
+configured. Add it to .env to enable this feature."}`.
+
+Tests: `lib/resend.test.ts` (4, mocked fetch: missing key, correct from/to/subject/html payload +
+returned id, non-2xx -> `ResendError`, no id in response -> `ResendError`) and
+`lib/digestEmail.test.ts` (6: subject template including the zero-patients case, the rendered
+table has every column, null cost / no-alternative rows show an em dash rather than the string
+"null", HTML-escaping of `&`/`<`/`>` in patient and drug names, and `sendDigestEmail` end-to-end
+against a mocked `ResendClient`).
+
+**All four pivot tasks (0-4) are now done.** 219 tests passing, typecheck and lint clean, every
+new route re-verified over real HTTP on port 3111 after this task landed.
+
 ## Rebuild from scratch (the database and raw data are gitignored)
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
-.venv/bin/python scripts/download_spuf.py          # 2.5 GB CMS zip + record layout PDFs -> data/raw/
+.venv/bin/python scripts/download_spuf.py          # 2.5 GB CMS quarterly zip + record layout PDFs -> data/raw/
 .venv/bin/python scripts/load_spuf.py              # Georgia only -> data/ruined.duckdb, data_version v1 (~15 s)
+.venv/bin/python scripts/download_puf_monthly.py   # 2.2 GB CMS monthly zip + record layout PDFs -> data/raw/
+.venv/bin/python scripts/load_puf_monthly.py       # Georgia only -> data_version v2-cms (pricing copied from v1)
 npm install && npm run warm-drugs -- --import-only # drug cache from data/drug_cache.jsonl (offline)
-npx tsx scripts/seed-patients.ts                   # 20 synthetic patients
-npx tsx scripts/make-v2.ts                         # synthetic v2 formulary for the alerts demo
-npm test                                           # 138 tests
+npx tsx scripts/seed-patients.ts                   # 20 synthetic patients (4 reassigned Rybelsus, task 1)
+npx tsx scripts/make-v2.ts                         # synthetic v2 formulary, fallback for CHANGE_SOURCE=synthetic
+npm test                                           # 219 tests
 npm run dev                                        # API on :3000 (stop it before re-running any script above)
 ```
 
@@ -216,6 +609,42 @@ npm run dev                                        # API on :3000 (stop it befor
 22. Fill quantity: the CMS file has no dose, so the 30-day quantity is a property of the drug (smallest quantity >= 20% of formularies agree on from their quantity limits; else 30 units oral / 1 unit other forms), capped by the plan's own QL. This makes a drug cost the same on every plan and avoids pricing Eliquis at 30, 60 or 74 tablets by plan. Overridable with `quantityPer30Days`.
 23. Alternatives are limited to a curated list of interchangeable ATC classes, no specialty tiers, no packs, and one worst-case product per ingredient (see Task 5). Brand -> exact generic is always allowed. This is more conservative than the literal spec ("same class") on purpose: the literal version produced dangerous suggestions on real data.
 24. `/api/patients/[id]` returns exactly the contract's `Patient`; coverage for a patient's meds is fetched with `POST /api/check` (one call per med), rather than inventing an extended patient type.
+25. `displayName`'s rule ("brand in brackets, else first three words") is duplicated between `lib/display.ts` (backend, Task 9) and `components/format.ts` (frontend branch's UI) on purpose, not shared: the backend build cannot import from `components/`.
+26. `UpcomingRisk.effectiveDate` is a hardcoded placeholder (`"2027-01-01"`), since the synthetic v2 (Task 8) carries no real CMS effective date.
+27. `UpcomingRisk.percentIncrease` is `null` (not `Infinity`) when the old cost was `$0` or either cost is unknown.
+28. `v2-cms` = the newest CMS **monthly** PUF at build time (September 2026), loaded fresh alongside (not replacing) `v1` (Q2 2026 quarterly) and the synthetic `v2` (Task 8). All three coexist in the same database, distinguished by `data_version`.
+29. The monthly PUF has no pricing file, so `v2-cms` pricing is copied verbatim from `v1` (see Task 1); a real system would need the monthly file's own pricing once CMS publishes one, or would need to re-derive it some other way.
+30. `PatientAlert.effectiveDate` is not a real per-change date (see "Read this first" #11): `"2026-09-01"` for `dataSource: "cms"` (the monthly distribution's period start), `"2027-01-01"` for `"synthetic"` (unchanged placeholder from Task 9).
+31. A drug with more than one simultaneous adverse change produces one `PatientAlert` per `ChangeType`, not one alert with a chosen "primary" type (see "Read this first" #10).
+32. `GET /api/digest` never changes any alert's status (see "Read this first" #12); `"seen"` is a contract value with no producer yet in this build.
+33. `POST /api/alerts/:id/switch` accepts any non-empty `rxcui` string in the body; it does not verify the drug is actually covered by the patient's plan or is the alert's own `bestAlternative`. The doctor is trusted to pick a real switch.
+34. `PatientMessage.language` reflects what `text` actually is, not what was requested: it is the patient's real language on a successful, number-verified translation, and `"English"` whenever translation was skipped (English-speaking patient) or the translation was discarded for changing a number.
+35. Grok/ElevenLabs model and voice ids (`grok-4-fast`, `eleven_multilingual_v2`, ElevenLabs' stock "Rachel" voice) are best-effort choices, not verified against a live key; all three are overridable via env (`XAI_MODEL`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`) without a code change.
+36. `POST /api/alerts/:id/message` sets status `"patient_notified"` but does not clear `switchedTo` -- the two facts ("doctor switched the med" and "patient was notified") are independent even though `AlertStatus` only stores one current status string.
+37. `POST /api/digest/email` sends to a single recipient (`DOCTOR_EMAIL`), not a list; the contract/task both describe one doctor's inbox, not a multi-recipient broadcast.
+38. The digest email includes every non-dismissed alert regardless of status (`new`, `seen`, `switched`, `patient_notified`) -- it's a record of everything currently affecting the doctor's patients, not just the unactioned ones (that distinction is what `totalAtRisk` is for).
+
+**Entries 25, 30-38 above describe the "proactive alerts" pivot removed tonight** (see "Superseded"
+section above) and no longer apply to any code on this branch; kept for history, not current
+behavior. 26-29 and 31 still apply (formulary/version mechanics, not patient-facing).
+
+39. `ManifestEntry` (the `data/releases.json` shape `ingestRelease` reads) has a `dataVersion`
+    field beyond the four the task described (`source`, `releaseDate`, `filePath`, `fileHash`):
+    without it there's no way to know which `data_version` label a release's metadata belongs to.
+40. `ingestRelease` never loads CMS data itself (see Task 2) -- it assumes
+    `scripts/load_spuf.py` / `scripts/load_puf_monthly.py` already populated
+    `plans`/`formulary`/`beneficiary_cost`/`pricing` for the `dataVersion` id it's given.
+41. `detectChanges` only records adverse changes (matches the removed `diffFormularies`'s
+    convention and CLAUDE.md's framing, "alerts when coverage changes"); a drug getting *better*
+    between versions is not written to `coverage_changes`.
+42. `matchPrescriptions` joins the patient's plan to the affected formulary **at `toVersion`**
+    (their current enrollment, since `patient_coverage` carries no history) -- not `fromVersion`.
+    In practice these are almost always the same formulary; if a patient's plan itself changed
+    formularies between releases (not modeled by any seed data here), this would follow the new
+    one.
+43. `coverage_changes` / `patient_alerts` row ids are deterministic hashes of their natural key
+    (not random), which is what makes both pipeline steps idempotent on rerun without a separate
+    "have I seen this before" table.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
@@ -228,3 +657,7 @@ npm run dev                                        # API on :3000 (stop it befor
 - 11% of formulary drugs have no ATC class, so they never get (or appear as) alternatives.
 - Only the schema init in `openDb()` (read-write) creates tables; an old DB file opened read-only will lack newer tables until a write-mode open has run.
 - Excluded-drug and indication-based coverage files are not loaded (only relevant to enhanced plans / niche cases).
+- The real CMS diff (v1 vs v2-cms) currently only ever produces `removed` alerts (see "Read this first" #8); `tier_increase` / `new_prior_auth` / `new_step_therapy` / `new_quantity_limit` are implemented and covered by synthetic tests only, not by a real example.
+- No endpoint sets `AlertStatus` to `"seen"` (see assumption 32) -- `totalAtRisk` in `GET /api/digest` only ever reflects `"new"` alerts today.
+- `POST /api/alerts/:id/switch` trusts the caller's `rxcui` (see assumption 33); a UI should constrain the choice to `bestAlternative` or another plan-covered drug.
+- Task 3 (patient-language voice/text notification) and Task 4 (doctor email digest) are not built yet -- see the Status table.

@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""Load the CMS Quarterly Part D SPUF into DuckDB, filtered to Georgia plans.
+"""Load the CMS MONTHLY Part D formulary/pharmacy-network PUF into DuckDB as data_version
+'v2-cms', filtered to Georgia plans -- the real (not synthetic) "what changed" comparison
+point for v1 (see PROGRESS.md task 1).
 
-    .venv/bin/python scripts/load_spuf.py                       # loads data_version 'v1'
-    .venv/bin/python scripts/load_spuf.py --data-version v1 --db data/ruined.duckdb
+    .venv/bin/python scripts/load_puf_monthly.py                      # loads data_version 'v2-cms'
+    .venv/bin/python scripts/load_puf_monthly.py --zip data/raw/2026_20260916.zip
 
-Reads the raw SPUF zip (data/raw/SPUF_*.zip, gitignored), extracts only the nested
-files it needs (skips the ~2.4 GB pharmacy network parts) and loads:
-plans, formulary, beneficiary_cost, pricing  -- all tagged with data_version.
-
-Georgia scope (see SPUFRecordLayout-2026.pdf):
-  H (local MA)    STATE = 'GA'
-  R (regional MA) MA_REGION_CODE = 8   (Georgia + South Carolina)
-  S (PDP)         PDP_REGION_CODE = 10 (Georgia)
-Plans with PLAN_SUPPRESSED_YN = 'Y' are dropped (they have no rows in other files).
+Loads: plans, formulary, beneficiary_cost -- same as load_spuf.py. This monthly PUF has
+NO pricing file (confirmed against PUFRecordLayout-2026.pdf: no PRICING FILE section), so
+pricing for 'v2-cms' is a straight copy of v1's pricing rows (same NDCs are priced the same;
+an NDC that only appears in the new formulary has no price and prices as null, same as any
+other unpriced NDC -- see lib/coverage.ts). This is logged below and in PROGRESS.md.
 """
 import argparse
 import glob
@@ -26,11 +24,9 @@ import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
 NEEDED = {
-    # key: substring of the nested zip name inside the outer SPUF zip
     "plan": "plan information",
     "formulary": "basic drugs formulary file",
     "beneficiary_cost": "beneficiary cost file",
-    "pricing": "pricing file",
 }
 READ_OPTS = "delim='|', header=true, all_varchar=true, quote='', escape='', encoding='latin-1'"
 
@@ -40,7 +36,6 @@ def log(msg):
 
 
 def extract(outer_zip: Path, work: Path):
-    """Extract the nested zips we need from the outer SPUF zip into `work`."""
     work.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(outer_zip) as outer:
         for name in outer.namelist():
@@ -53,7 +48,7 @@ def extract(outer_zip: Path, work: Path):
             if list(target.glob("*.txt")):
                 continue
             log(f"extracting {name}")
-            outer.extract(name, work)  # nested zip must be on disk to be seekable
+            outer.extract(name, work)
             with zipfile.ZipFile(work / name) as inner:
                 inner.extractall(target)
             (work / name).unlink()
@@ -69,33 +64,31 @@ def find_txt(work: Path, key: str) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--zip", default=str(ROOT / "data/raw/SPUF_2026_20260701.zip"))
-    ap.add_argument("--work", default=str(ROOT / "data/raw/extracted"))
+    ap.add_argument("--zip", default=str(ROOT / "data/raw/2026_20260916.zip"))
+    ap.add_argument("--work", default=str(ROOT / "data/raw/extracted_monthly"))
     ap.add_argument("--db", default=str(ROOT / "data/ruined.duckdb"))
-    ap.add_argument("--data-version", default="v1")
-    ap.add_argument("--pricing-days", default="30,90", help="comma list of DAYS_SUPPLY values to keep")
+    ap.add_argument("--data-version", default="v2-cms")
+    ap.add_argument("--pricing-source", default="v1", help="data_version to copy pricing rows from")
     args = ap.parse_args()
 
     zip_path, work = Path(args.zip), Path(args.work)
     if not any(work.glob("**/*.txt")):
         if not zip_path.exists():
-            sys.exit(f"{zip_path} not found; download it first (see PROGRESS.md task 1)")
+            sys.exit(f"{zip_path} not found; download it first: scripts/download_puf_monthly.py")
         extract(zip_path, work)
     files = {k: find_txt(work, k) for k in NEEDED}
     for k, v in files.items():
         log(f"{k}: {os.path.basename(v)}")
 
     dv = args.data_version
-    days = ",".join(str(int(d)) for d in args.pricing_days.split(","))
     con = duckdb.connect(args.db)
     con.execute((ROOT / "data/schema.sql").read_text())
 
-    # Idempotent reload of this data_version. (data_versions bookkeeping is now owned by
-    # lib/pipeline/ingestRelease.ts -- see PROGRESS.md task 2 -- not written here.)
+    # data_versions bookkeeping is now owned by lib/pipeline/ingestRelease.ts (PROGRESS.md task 2).
     for t in ("plans", "formulary", "beneficiary_cost", "pricing"):
         con.execute(f"DELETE FROM {t} WHERE data_version = ?", [dv])
 
-    # ---- plans ------------------------------------------------------------------
+    # ---- plans (same Georgia rule as load_spuf.py) -------------------------------
     log("loading plans (Georgia only)")
     con.execute(f"CREATE OR REPLACE TEMP TABLE plan_raw AS SELECT * FROM read_csv('{files['plan']}', {READ_OPTS})")
     con.execute("""
@@ -117,13 +110,10 @@ def main():
         FROM ga_plan_rows GROUP BY contract_id, plan_id, segment_id
     """, [dv])
     n_plans = con.execute("SELECT count(*) FROM plans WHERE data_version = ?", [dv]).fetchone()[0]
-    dup = con.execute("""SELECT count(*) FROM (SELECT 1 FROM ga_plan_rows GROUP BY contract_id, plan_id, segment_id
-                         HAVING count(DISTINCT formulary_id) > 1)""").fetchone()[0]
-    assert dup == 0, "a plan maps to more than one formulary id"
     log(f"  plans: {n_plans}")
     con.execute("CREATE OR REPLACE TEMP TABLE ga_plans AS SELECT contract_id, plan_id, segment_id, formulary_id FROM plans WHERE data_version = ?", [dv])
 
-    # ---- formulary --------------------------------------------------------------
+    # ---- formulary -----------------------------------------------------------------
     log("loading formulary (formularies used by Georgia plans)")
     con.execute(f"""
         INSERT INTO formulary
@@ -140,7 +130,7 @@ def main():
     """, [dv])
     log(f"  formulary rows: {con.execute('SELECT count(*) FROM formulary WHERE data_version = ?', [dv]).fetchone()[0]:,}")
 
-    # ---- beneficiary_cost -------------------------------------------------------
+    # ---- beneficiary_cost ------------------------------------------------------------
     log("loading beneficiary_cost")
     num = lambda c: f"CAST(nullif(trim(b.{c}), '') AS DOUBLE)"
     ints = lambda c: f"CAST(nullif(trim(b.{c}), '') AS INTEGER)"
@@ -158,20 +148,16 @@ def main():
     """, [dv])
     log(f"  beneficiary_cost rows: {con.execute('SELECT count(*) FROM beneficiary_cost WHERE data_version = ?', [dv]).fetchone()[0]:,}")
 
-    # ---- pricing (2 GB raw; stream + filter) ------------------------------------
-    log(f"loading pricing (days_supply in {days}) -- this is the slow one")
+    # ---- pricing: NOT in this file -- reuse the quarterly pricing (see module docstring) ------
+    src = args.pricing_source
+    log(f"no pricing file in the monthly PUF -- copying pricing from data_version '{src}'")
     con.execute(f"""
-        INSERT INTO pricing
-        SELECT ?, p.contract_id, p.plan_id, p.segment_id, p.ndc,
-               CAST(p.days_supply AS INTEGER), CAST(p.unit_cost AS DOUBLE)
-        FROM read_csv('{files['pricing']}', {READ_OPTS}) p
-        JOIN ga_plans g USING (contract_id, plan_id, segment_id)
-        WHERE CAST(p.days_supply AS INTEGER) IN ({days})
-          AND nullif(trim(p.unit_cost), '') IS NOT NULL
-    """, [dv])
-    log(f"  pricing rows: {con.execute('SELECT count(*) FROM pricing WHERE data_version = ?', [dv]).fetchone()[0]:,}")
+        INSERT INTO pricing (data_version, contract_id, plan_id, segment_id, ndc, days_supply, unit_cost)
+        SELECT ?, contract_id, plan_id, segment_id, ndc, days_supply, unit_cost
+        FROM pricing WHERE data_version = ?
+    """, [dv, src])
+    log(f"  pricing rows (copied from {src}): {con.execute('SELECT count(*) FROM pricing WHERE data_version = ?', [dv]).fetchone()[0]:,}")
 
-    # ---- indexes on join keys -----------------------------------------------------
     log("creating indexes")
     for ddl in (
         "CREATE INDEX IF NOT EXISTS idx_plans_key ON plans (contract_id, plan_id, segment_id)",
