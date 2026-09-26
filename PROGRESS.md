@@ -10,7 +10,7 @@ comes from our data + deterministic code, never an LLM.
 | 1 | Download latest quarterly CMS SPUF, read record layout | done |
 | 2 | Python + DuckDB loader (Georgia only) | done |
 | 3 | Drug normalizer (RxNav / RxClass) + drugs cache | done |
-| 4 | checkCoverage + tests | pending |
+| 4 | checkCoverage + tests | done |
 | 5 | findAlternatives + tests | pending |
 | 6 | Seed 20 synthetic patients | pending |
 | 7 | API routes | pending |
@@ -83,6 +83,21 @@ Tests: `lib/drugs.test.ts` (mocked RxNav, runs offline; `RXNAV_LIVE=1 npx vitest
 - DB layer is DuckDB (`@duckdb/node-api`) behind a small `Db` interface (`query`/`run` with `$1` params). `RUINED_DB` env overrides the file path. `openDb()` applies `data/schema.sql` (idempotent); read-only opens do not.
 - Dev tooling added: vitest **3** (vitest 5 needs `@types/node` >= 22 but the project pins ^20) and tsx (scripts run as `tsx scripts/x.ts`; project is CommonJS so scripts use an async `main()`).
 
+## Task 4 — checkCoverage (done)
+
+`lib/coverage.ts`: `checkCoverage(contractId, planId, segmentId, rxcui, opts?) -> CoverageResult` (exact contract type, `isEstimate: true` always).
+Unknown plan -> `PlanNotFoundError`. `coverageForRxcuis()` does the same for many drugs in 4 queries (used by alternatives / dashboard / alerts).
+
+How the estimate is built (all deterministic, from the loaded CMS data):
+1. **Coverage**: is the RXCUI on the plan's formulary (plan -> FORMULARY_ID -> formulary)? Tier, PA / step therapy / quantity limit flags come from that row. Not on the formulary -> `not_covered`, tier null, cost null.
+2. **Cost share**: `beneficiary_cost` for the plan + tier, **coverage level 1 (initial coverage), 30-day supply** (so deductibles / pre-deductible rows are ignored, per the task). Copay = flat $ but never more than the drug costs; coinsurance = % x drug cost, clamped to the plan's min/max $ when set.
+3. **Drug cost** = 30-day `pricing.unit_cost` x quantity.
+4. **Status**: `restricted` = covered with any of PA / step therapy / quantity limit; otherwise `covered`.
+
+Tests (`lib/coverage.test.ts`, 43): pure-logic tests (cost share, copay/coinsurance, quantity rules) + real-data tests for **7 common drugs x 3 real plans** (HealthSpring copay design, Humana PDP with 25% coinsurance, AARP PDP with 16%), a real prior-auth drug (Ozempic), a real step-therapy specialty-tier drug (Exxua, ~$434/mo), a not-covered case (Kaiser), preferred-pharmacy and dose overrides. Expected values were computed independently in Python from the raw tables, not from the code under test. They are pinned to the Q2 2026 data (a different quarter will legitimately change them).
+
+**Bug found while hand-verifying, and the decision it forced:** the CMS file has no dose, and my first version priced the fill at the plan's own quantity limit. That priced Eliquis at 30, 60 or 74 tablets depending on the plan. Now the quantity is a property of the *drug*: the smallest 30-day quantity that at least 20% of the formularies that set a QL agree on (Eliquis 5 mg -> 60, Farxiga -> 30), capped by the plan's own QL if lower. With no QL anywhere: oral = 30 units (1/day), other dose forms = 1 unit. `quantityPer30Days` overrides it when a real dose is known.
+
 ## Assumptions log
 1. "Latest quarterly" = Q2 2026 SPUF (2026-07-01 posting), not the newer monthly files.
 2. Record layout PDF lives beside the dataset on data.cms.gov, not inside the zip.
@@ -96,11 +111,17 @@ Tests: `lib/drugs.test.ts` (mocked RxNav, runs offline; `RXNAV_LIVE=1 npx vitest
 8. Pricing keeps DAYS_SUPPLY 30 and 90 only (60-day rows dropped) — `--pricing-days` changes that.
 9. DATABASE_URL is not set on this machine, so the DuckDB file is the backend. A Postgres adapter for `lib/db.ts` is NOT written (it could not be tested here); the schema and all SQL are kept portable for it.
 10. "Same class" = same ATC level-4 class (finer than VA/EPC classes; ATC-3 would suggest SGLT2 inhibitors to a metformin patient).
+12. Cost sharing uses **standard retail** (non-preferred) by default: it is always offered, whereas preferred-pharmacy cost share is "not offered" on 426 of 773 plan/tier rows. `pharmacy: "preferred"` switches (falls back to the other if not offered).
+13. "restricted" = any of PA, step therapy or quantity limit (one definition used everywhere, incl. "no restrictions" in alternatives). The three flags are returned separately so a UI can tell a routine QL from a PA.
+14. Where a formulary lists several NDCs for one RXCUI (never happens in this file) we take the lowest tier, OR the flags, and the median unit cost.
+15. Estimates ignore: deductible, coverage phases / the 2026 $2,100 out-of-pocket cap, manufacturer discount program, low-income subsidy, mail-order/90-day pricing, pharmacy dispensing fees.
 11. A fuzzy (RxNav approximate) match can pick a near-miss drug, so responses always echo the matched RxNorm name for a human to verify.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
   insulin estimates use the ordinary tier cost share and may be overstated.
+- Cost estimates assume a typical fill quantity, not the patient's actual dose (see Task 4). `Patient.meds[].dose` is free text and is not parsed.
+- Dual-eligible / low-income-subsidy members pay LIS copays instead of plan cost sharing; not modeled (seed patients avoid SNP plans).
 - 11% of formulary drugs have no ATC class, so they never get (or appear as) alternatives.
 - Only the schema init in `openDb()` (read-write) creates tables; an old DB file opened read-only will lack newer tables until a write-mode open has run.
 - Excluded-drug and indication-based coverage files are not loaded (only relevant to enhanced plans / niche cases).
