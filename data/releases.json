@@ -1,0 +1,16 @@
+[
+  {
+    "dataVersion": "v1",
+    "source": "SPUF_2026_20260701.zip",
+    "releaseDate": "2026-07-01",
+    "filePath": "data/raw/SPUF_2026_20260701.zip",
+    "fileHash": null
+  },
+  {
+    "dataVersion": "v2-cms",
+    "source": "CMS monthly PUF 2026_20260916.zip (Georgia); pricing reused from 'v1' (monthly file has none)",
+    "releaseDate": "2026-09-01",
+    "filePath": "data/raw/2026_20260916.zip",
+    "fileHash": "51d0d4177f00458ef420da1491f91f2e4f0a17dc11c253232a9bcc06572d21f2"
+  }
+]

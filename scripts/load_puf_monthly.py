@@ -84,7 +84,8 @@ def main():
     con = duckdb.connect(args.db)
     con.execute((ROOT / "data/schema.sql").read_text())
 
-    for t in ("plans", "formulary", "beneficiary_cost", "pricing", "data_versions"):
+    # data_versions bookkeeping is now owned by lib/pipeline/ingestRelease.ts (PROGRESS.md task 2).
+    for t in ("plans", "formulary", "beneficiary_cost", "pricing"):
         con.execute(f"DELETE FROM {t} WHERE data_version = ?", [dv])
 
     # ---- plans (same Georgia rule as load_spuf.py) -------------------------------
@@ -168,9 +169,6 @@ def main():
     ):
         con.execute(ddl)
 
-    con.execute("INSERT INTO data_versions VALUES (?, ?, now())", [
-        dv, f"CMS monthly PUF {os.path.basename(args.zip)} (Georgia); pricing reused from '{src}' (monthly file has none)",
-    ])
     log("done")
     for t in ("plans", "formulary", "beneficiary_cost", "pricing"):
         print(f"  {t:18s} {con.execute(f'SELECT count(*) FROM {t} WHERE data_version = ?', [dv]).fetchone()[0]:>12,}")

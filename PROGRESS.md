@@ -60,7 +60,7 @@ New sponsor direction (Impiricus): minimal patient data, and prove the pipeline 
 |---|------|--------|
 | 0 | `DATA_MODEL.md` + new tables + `lib/contract.ts` (`Patient`, `Doctor`, `Prescription`, `CoverageChange`) | done |
 | 1 | Pick the drug: real v1 vs v2-cms evidence | done |
-| 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | in progress |
+| 2 | Pipeline: `ingestRelease` / `detectChanges` / `matchPrescriptions` + `scripts/run-pipeline.ts` | done |
 | 3 | `scripts/seed-scenario.ts`: 1 doctor, 5 patients | not started |
 | 4 | `scripts/e2e.ts` + tests | not started |
 | 5 | API: `/api/doctors/:id/alerts`, `/api/changes`, `/api/pipeline/run` | not started |
@@ -117,6 +117,61 @@ Evidence, via `checkCoverage` itself (not a hand re-derivation) at each version:
 enum -- exactly the shape the sponsor asked for ("an insulin brand that lost coverage ... on at
 least one plan while staying covered on at least one other plan"), so no fallback to Rybelsus was
 needed.
+
+### Task 2 -- pipeline: ingestRelease / detectChanges / matchPrescriptions (done)
+
+Three plain functions in `lib/pipeline/`, plus `scripts/run-pipeline.ts` that runs all three and
+prints a report. All three are idempotent; `lib/pipeline/pipeline.test.ts` (12 tests, synthetic
+two-version world) checks this directly, and so does running the real script twice in a row
+(same 6 `coverage_changes` rows, same `data_versions.loaded_at`, no duplicates).
+
+- **`ingestRelease(entry, db?)`** owns only the `data_versions` bookkeeping row (source, release
+  date, file hash, when we loaded it) -- it does **not** parse CMS files itself. It assumes the
+  `plans`/`formulary`/`beneficiary_cost`/`pricing` rows for that `dataVersion` id are already
+  loaded (by `scripts/load_spuf.py` / `scripts/load_puf_monthly.py`, run separately). Idempotent
+  on `fileHash`: same id + same hash is a no-op; same id + a different (non-null) hash replaces
+  the metadata row (but still doesn't reload the CMS tables -- that's a separate, deliberate step
+  so a metadata-only correction can't accidentally trigger an unwanted multi-GB reload).
+  **Extended the manifest entry shape** beyond the four fields in the task description --
+  `{ source, releaseDate, filePath, fileHash }` -- to add a required `dataVersion` field (e.g.
+  `'v1'`, `'v2-cms'`): without it there is no way to know which `data_version` label an entry's
+  hash/date belong to, and that label is what everything else (`plans.data_version`,
+  `detectChanges`) actually joins on. **Created `data/releases.json`** (did not exist yet) with
+  the two real releases already loaded on this branch: `v1`'s source zip was deleted before this
+  pipeline existed (raw CMS files are gitignored, not needed after loading), so its `fileHash` is
+  `null` -- a null hash is treated as "always matches an existing row by id," which keeps
+  `ingestRelease('v1', ...)` idempotent but means it can't detect a same-id content swap the way a
+  real hash can (fine here: nothing will ever re-supply that missing file). `v2-cms`'s hash is a
+  real sha256 of `data/raw/2026_20260916.zip` (still present).
+  **Fixed a real regression this change would otherwise have caused**: `load_spuf.py` and
+  `load_puf_monthly.py` used to `INSERT INTO data_versions VALUES (?, ?, now())` directly, a
+  3-column positional insert that would now fail against the redefined 5-column table (and its
+  renamed `data_version` -> `id` column). Removed that insert and the matching `DELETE FROM
+  data_versions` from both scripts' idempotent-reload loop -- `data_versions` bookkeeping is now
+  `ingestRelease`'s job alone.
+- **`detectChanges(fromVersion, toVersion, rxcuis?, db?)`** is the generalization of the old
+  (removed) `diffFormularies`/`findAdverseChanges`: one SQL `LEFT JOIN` of `formulary` at
+  `fromVersion` to `toVersion` on `(formulary_id, rxcui)`, scoped to `rxcuis` when given (else a
+  full scan). Only **adverse** changes are recorded -- `removed` (no matching row in `toVersion`),
+  `tier_increase`, `new_prior_auth`, `new_step_therapy`, `new_quantity_limit` -- improvements
+  aren't. **A drug with more than one simultaneous adverse change gets one `coverage_changes` row
+  per `change_type`** (the pipeline test's synthetic drug does exactly this: a tier increase and
+  a new prior-auth requirement in the same release produce two rows, not one row with an
+  arbitrarily chosen "primary" type). Each
+  row's id is a deterministic hash of `(fromVersion, toVersion, formularyId, rxcui, changeType)`,
+  which is what makes rerunning idempotent. A full unscoped scan of real `v1` -> `v2-cms` across
+  every Georgia formulary found **1,202 adverse changes** in ~1.2s -- fast enough that
+  `scripts/run-pipeline.ts` defaults to a full scan; pass specific rxcuis as argv to scope it (the
+  6 rows for the two NovoLog RXCUIs across the 3 formularies that dropped it).
+- **`matchPrescriptions(changeIds, db?)`**: for each `coverage_changes` row, joins
+  `prescriptions` (by `rxcui`) to `patient_coverage` to `plans` **at `toVersion`** (the patient's
+  *current* plan must point at the affected `formulary_id` for the change to reach them -- there
+  is no historical plan-enrollment tracking, see `DATA_MODEL.md`), then calls the existing
+  `checkCoverage` at `fromVersion`/`toVersion` for the cost before/after and `findAlternatives` at
+  `toVersion` for the suggested switch (its top result, or null) -- never recomputing either.
+  Verified by hand in the test: a tier-2-copay-$10 drug moving to tier-3-coinsurance-25% on a
+  $10/unit x 30-unit drug goes from an exact **$10.00 -> $75.00**. Idempotent the same way
+  (deterministic id from `(changeId, prescriptionId)`).
 
 ## Read this first (decisions that need a human)
 
@@ -540,6 +595,28 @@ npm run dev                                        # API on :3000 (stop it befor
 36. `POST /api/alerts/:id/message` sets status `"patient_notified"` but does not clear `switchedTo` -- the two facts ("doctor switched the med" and "patient was notified") are independent even though `AlertStatus` only stores one current status string.
 37. `POST /api/digest/email` sends to a single recipient (`DOCTOR_EMAIL`), not a list; the contract/task both describe one doctor's inbox, not a multi-recipient broadcast.
 38. The digest email includes every non-dismissed alert regardless of status (`new`, `seen`, `switched`, `patient_notified`) -- it's a record of everything currently affecting the doctor's patients, not just the unactioned ones (that distinction is what `totalAtRisk` is for).
+
+**Entries 25, 30-38 above describe the "proactive alerts" pivot removed tonight** (see "Superseded"
+section above) and no longer apply to any code on this branch; kept for history, not current
+behavior. 26-29 and 31 still apply (formulary/version mechanics, not patient-facing).
+
+39. `ManifestEntry` (the `data/releases.json` shape `ingestRelease` reads) has a `dataVersion`
+    field beyond the four the task described (`source`, `releaseDate`, `filePath`, `fileHash`):
+    without it there's no way to know which `data_version` label a release's metadata belongs to.
+40. `ingestRelease` never loads CMS data itself (see Task 2) -- it assumes
+    `scripts/load_spuf.py` / `scripts/load_puf_monthly.py` already populated
+    `plans`/`formulary`/`beneficiary_cost`/`pricing` for the `dataVersion` id it's given.
+41. `detectChanges` only records adverse changes (matches the removed `diffFormularies`'s
+    convention and CLAUDE.md's framing, "alerts when coverage changes"); a drug getting *better*
+    between versions is not written to `coverage_changes`.
+42. `matchPrescriptions` joins the patient's plan to the affected formulary **at `toVersion`**
+    (their current enrollment, since `patient_coverage` carries no history) -- not `fromVersion`.
+    In practice these are almost always the same formulary; if a patient's plan itself changed
+    formularies between releases (not modeled by any seed data here), this would follow the new
+    one.
+43. `coverage_changes` / `patient_alerts` row ids are deterministic hashes of their natural key
+    (not random), which is what makes both pipeline steps idempotent on rerun without a separate
+    "have I seen this before" table.
 
 ## Known issues / not done
 - Insulin: 2026 insulin cost sharing has its own file (lesser of $35 copay / 25% rules) that we do not load, so
