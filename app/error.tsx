@@ -21,7 +21,7 @@ export default function Error({
         <h1 className="max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-neutral-950">
           How many patients have I financially ruined?
         </h1>
-        <p className="text-lg text-neutral-700">The dashboard could not be loaded.</p>
+        <p className="text-lg text-neutral-700">This page could not be loaded.</p>
         <Button className="h-12 w-fit px-5 text-base" onClick={() => retry()}>
           Try again
         </Button>
