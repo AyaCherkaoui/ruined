@@ -4,11 +4,13 @@ import { ApiError } from "../http";
 import { CURRENT_DATA_VERSION, PREVIOUS_DATA_VERSION, DEMO_DOCTOR_ID } from "../scenario";
 import { detectChanges } from "./detectChanges";
 import { matchPrescriptions } from "./matchPrescriptions";
+import { hostedDemoEnabled, hostedReplay, hostedChanges } from "../hostedDemo";
 
 // Serialize runs in this server process, including development hot reloads.
 const state = globalThis as unknown as { __demoPipelineRun?: Promise<unknown> };
 
 export async function runAppPipeline(db?: Db) {
+  if (!db && hostedDemoEnabled()) return hostedReplay();
   if (state.__demoPipelineRun) throw new ApiError(409, "The demo pipeline is already running.");
   const pending = (async () => {
     const database = db ?? await getDb();
@@ -64,6 +66,7 @@ export async function runAppPipeline(db?: Db) {
 
 /** Read persisted facts without invoking detection or changing review state. */
 export async function listAppChanges(db?: Db): Promise<CoverageChange[]> {
+  if (!db && hostedDemoEnabled()) return hostedChanges();
   const conn = db ?? await getDb();
   return conn.query<CoverageChange>(`SELECT c.id, c.from_version AS "fromVersion", c.to_version AS "toVersion",
     c.formulary_id AS "formularyId", c.rxcui, coalesce(d.name,c.rxcui) AS "drugName",

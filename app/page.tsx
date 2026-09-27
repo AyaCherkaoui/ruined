@@ -1,22 +1,20 @@
 import { MedishiftDashboard, type DashboardItem } from "@/components/medishift-dashboard";
-import { findAlternatives } from "@/lib/alternatives";
-import { alertsForDoctor } from "@/lib/queries";
-import { CURRENT_DATA_VERSION, DEMO_DOCTOR_ID } from "@/lib/scenario";
+import type { Alternative } from "@/lib/contract";
+import { alertsForDoctor, runCheck } from "@/lib/queries";
+import { DEMO_DOCTOR_ID } from "@/lib/scenario";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const alerts = await alertsForDoctor(DEMO_DOCTOR_ID);
   const items: DashboardItem[] = [];
-  const cache = new Map<string, Awaited<ReturnType<typeof findAlternatives>>>();
+  const cache = new Map<string, Alternative[]>();
   for (const alert of alerts) {
     try {
       const key = `${alert.contractId}:${alert.planId}:${alert.segmentId}:${alert.rxcui}`;
-      const alternatives = cache.get(key) ?? await findAlternatives(
-        { contractId: alert.contractId, planId: alert.planId, segmentId: alert.segmentId },
-        alert.rxcui,
-        { dataVersion: CURRENT_DATA_VERSION },
-      );
+      const alternatives = cache.get(key) ?? (await runCheck({
+        contractId: alert.contractId, planId: alert.planId, segmentId: alert.segmentId, rxcui: alert.rxcui,
+      })).alternatives;
       cache.set(key, alternatives);
       items.push({ alert, alternatives, checkError: null });
     } catch (err: unknown) {

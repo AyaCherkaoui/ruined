@@ -16,6 +16,7 @@ import { normalizeDrug } from "./drugs";
 import { ApiError } from "./http";
 import { insurerCheck } from "./insurer-check";
 import { CURRENT_DATA_VERSION } from "./scenario";
+import * as hosted from "./hostedDemo";
 
 const STATUSES = new Set<PatientAlertStatus>(["new", "seen", "switched", "dismissed"]);
 const CHANGE_TYPES = new Set<ChangeType>(["removed", "tier_increase", "new_prior_auth", "new_step_therapy", "new_quantity_limit"]);
@@ -149,6 +150,7 @@ export async function assertScenarioSchema(db: Db): Promise<void> {
 }
 
 export async function doctorById(id: string, db?: Db): Promise<Doctor | null> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedDoctor(id);
   const conn = await dbOf(db);
   const rows = await conn.query<{ id: string; full_name: string; phone: string | null }>(
     "SELECT id, full_name, phone FROM doctors WHERE id = $1",
@@ -160,6 +162,7 @@ export async function doctorById(id: string, db?: Db): Promise<Doctor | null> {
 }
 
 export async function patientById(id: string, db?: Db): Promise<Patient | null> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedPatient(id);
   const conn = await dbOf(db);
   const rows = await conn.query<{ id: string; full_name: string }>(
     "SELECT id, full_name FROM patients WHERE id = $1",
@@ -171,12 +174,14 @@ export async function patientById(id: string, db?: Db): Promise<Patient | null> 
 }
 
 export async function countPatients(db?: Db, doctorId?: string): Promise<number> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedCount(doctorId);
   const conn = await dbOf(db);
   const rows = await conn.query<{ n: number }>("SELECT count(*) AS n FROM patients p WHERE $1 IS NULL OR EXISTS (SELECT 1 FROM prescriptions rx WHERE rx.patient_id=p.id AND rx.doctor_id=$1)", [doctorId ?? null]);
   return Number(rows[0]?.n ?? 0);
 }
 
 export async function alertsForDoctor(doctorId: string, db?: Db): Promise<PatientAlert[]> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedAlerts(doctorId);
   const conn = await dbOf(db);
   const sql = `${ALERT_SELECT} WHERE rx.doctor_id = $2 ORDER BY p.full_name, a.id`;
   const rows = await conn.query<AlertRow>(sql, [CURRENT_DATA_VERSION, doctorId]);
@@ -184,6 +189,7 @@ export async function alertsForDoctor(doctorId: string, db?: Db): Promise<Patien
 }
 
 export async function alertById(id: string, db?: Db): Promise<PatientAlert | null> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedAlert(id);
   const conn = await dbOf(db);
   const sql = `${ALERT_SELECT} WHERE a.id = $2`;
   const rows = await conn.query<AlertRow>(sql, [CURRENT_DATA_VERSION, id]);
@@ -203,6 +209,7 @@ async function withDecisions(alerts: PatientAlert[], db: Db): Promise<PatientAle
 }
 
 export async function selectAlternative(id: string, rxcui: string, db?: Db): Promise<PatientAlert> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedSelect(id, rxcui);
   const database = await dbOf(db);
   return inTransaction(database, async (conn) => {
     const alert = await alertById(id, conn);
@@ -224,6 +231,7 @@ export async function selectAlternative(id: string, rxcui: string, db?: Db): Pro
 }
 
 export async function searchPatients(q: string, db?: Db): Promise<PatientSummary[]> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedSearchPatients(q);
   const conn = await dbOf(db);
   const query = q.trim();
   const rows = await conn.query<{
@@ -259,6 +267,7 @@ export async function searchPatients(q: string, db?: Db): Promise<PatientSummary
 }
 
 export async function searchPatientDrugs(patientId: string, q: string, db?: Db): Promise<DrugOption[]> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedSearchDrugs(patientId, q);
   const conn = await dbOf(db);
   if (!patientId.trim()) throw new ApiError(400, "patientId is required");
   const patient = await conn.query<{ id: string }>("SELECT id FROM patients WHERE id = $1", [patientId]);
@@ -302,6 +311,7 @@ async function planForRequest(body: CheckRequest, db: Db): Promise<PlanKey> {
 }
 
 export async function runCheck(body: CheckRequest, db?: Db): Promise<CheckResponse> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedCheck(body);
   const conn = await dbOf(db);
   const plan = await planForRequest(body, conn);
   let rxcui = body.rxcui?.trim() ?? "";
@@ -328,6 +338,7 @@ export async function runInsurerCheck(
   db?: Db,
   opts: { fetch?: typeof fetch } = {},
 ): Promise<InsurerCheck> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedInsurerCheck(body, opts);
   const conn = await dbOf(db);
   const plan = await planForRequest(body, conn);
   const rxcui = body.rxcui?.trim();
@@ -342,6 +353,7 @@ export async function runInsurerCheck(
 }
 
 export async function dismissAlert(id: string, db?: Db): Promise<PatientAlert> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedDismiss(id);
   const conn = await dbOf(db);
   const existing = await alertById(id, conn);
   if (!existing) throw new ApiError(404, `Alert ${id} not found`);
@@ -352,6 +364,7 @@ export async function dismissAlert(id: string, db?: Db): Promise<PatientAlert> {
 }
 
 export async function resetAlertStatuses(db?: Db): Promise<{ reset: true }> {
+  if (!db && hosted.hostedDemoEnabled()) return hosted.hostedReset();
   const conn = await dbOf(db);
   await inTransaction(conn, async (tx) => {
     if (await hasDecisions(tx)) await tx.run("DELETE FROM patient_alert_decisions");

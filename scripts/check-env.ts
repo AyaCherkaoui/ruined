@@ -34,13 +34,18 @@ if (env.SMS_MODE === "live") {
   check("SMS_SEND_TOKEN", Boolean(env.SMS_SEND_TOKEN?.trim()), "Copy the server-only messaging access key; do not use a NEXT_PUBLIC_ prefix.");
   check("APP_URL for live messages", Boolean(app && app.protocol === "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(app.hostname)), "Use https://headsuphealth.tech for the hosted demo.");
 }
-const file = resolve(env.RUINED_DB || "data/scenario.duckdb");
-const present = existsSync(file) && statSync(file).isFile() && statSync(file).size > 0;
-check("RUINED_DB patient database", present, "Provision the seeded scenario.duckdb file on the host's writable persistent disk; it is not in Git or Supabase.");
-if (present) {
-  let writable = false;
-  try { accessSync(file, constants.R_OK | constants.W_OK); writable = true; } catch { /* reported below */ }
-  check("Patient database permissions", writable, "The app needs read/write access for decisions and notification receipts.");
+check("PATIENT_DATA_SOURCE", !env.PATIENT_DATA_SOURCE || ["supabase", "local"].includes(env.PATIENT_DATA_SOURCE), "Use supabase (default) or local.");
+if (env.PATIENT_DATA_SOURCE === "local") {
+  const file = resolve(env.RUINED_DB || "data/scenario.duckdb");
+  const present = existsSync(file) && statSync(file).isFile() && statSync(file).size > 0;
+  check("RUINED_DB patient database", present, "Local mode needs a populated, writable scenario.duckdb file.");
+  if (present) {
+    let writable = false;
+    try { accessSync(file, constants.R_OK | constants.W_OK); writable = true; } catch { /* reported below */ }
+    check("Patient database permissions", writable, "The app needs read/write access for decisions and notification receipts.");
+  }
+} else {
+  console.log("OK Patient dashboard uses Supabase; local DuckDB storage is not required.");
 }
 console.log("Checks validate local settings and file presence, not remote deployment, schema contents, Sandbox membership, or delivery.");
 console.log("Public Supabase settings must be present when building. Rebuild/redeploy after changing them.");

@@ -51,8 +51,8 @@ Only the publishable key is used. No service-role or secret key is needed by the
 | `coverage_alert_resolutions` | each signed-in doctor, own rows only | each doctor, own rows only |
 
 A resolution row means "this doctor resolved this alert". No row means open. Demo reset deletes
-the signed-in doctor's own rows. No patient data is stored in Supabase; the synthetic
-patient demo and its saved decisions remain in local DuckDB. Source-driven resolutions
+the signed-in doctor's own rows. The shared synthetic patient demo and each doctor's
+saved decisions now live in Supabase too (see [hosted demo](hosted-demo.md)). Source-driven resolutions
 are stored on the change itself and are not undone by a doctor's reset.
 
 ## Inserting real coverage changes (Person 3)

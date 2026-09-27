@@ -10,6 +10,8 @@ Stop the app before seeding: DuckDB allows one writer. Rerunning the seed preser
 
 ## Demo sequence
 
+With Supabase configured, the deployed dashboard now uses the [hosted demo](hosted-demo.md), including durable review choices and receipts. The seed instructions below maintain the original local CMS dataset; select `PATIENT_DATA_SOURCE=local` to use that local workflow. Hosted replay reads verified exported match results, rather than running a fresh insurer scrape.
+
 1. Run `npm run demo:seed`, then `npm run dev`.
 2. Open `/`: 136 affected patients, medicine filters, name/ID/plan search, review-status filter, and 20 alerts at a time. The chart page counts only this doctor's patients.
 3. Open a patient and save an alternative. The selection persists and no prescription is issued.

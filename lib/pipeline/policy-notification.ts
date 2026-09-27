@@ -5,6 +5,7 @@ import { alertsForDoctor } from "../queries";
 import { DEMO_DOCTOR_ID } from "../scenario";
 import type { SmsResult } from "../sms";
 import { liveSmsConfigured, sendSms, type SmsEnvironment } from "../twilio";
+import { hostedDemoEnabled, hostedReadReceipt, hostedReserveReceipt, hostedWriteReceipt } from "../hostedDemo";
 
 async function ensureOutbox(db: Db) {
   await db.run(`CREATE TABLE IF NOT EXISTS policy_notifications (
@@ -13,7 +14,8 @@ async function ensureOutbox(db: Db) {
 
 /** A single digest per policy change set and recipient, retained across restarts. */
 export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvironment = process.env, request: typeof fetch = fetch) {
-  const conn = db ?? await getDb();
+  const hosted = !db && hostedDemoEnabled();
+  const conn = hosted ? undefined : db ?? await getDb();
   const alerts = (await alertsForDoctor(DEMO_DOCTOR_ID, conn)).filter(a => a.status === "new" || a.status === "seen");
   const changeIds = [...new Set(alerts.map(a => a.changeId))].sort();
   const patients = new Set(alerts.map(a => a.patientId)).size;
@@ -27,29 +29,35 @@ export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvir
   if (!configured) throw new ApiError(503, "Configure live WhatsApp credentials, recipient, APP_URL, and messaging access key first.");
   if (setupIssue) throw new ApiError(503, setupIssue);
   const id = createHash("sha256").update(JSON.stringify([DEMO_DOCTOR_ID, changeIds, env.TWILIO_ACCOUNT_SID, env.DOCTOR_PHONE?.replace(/^whatsapp:/, "").trim()])).digest("hex");
-  await ensureOutbox(conn);
-  const previous = await inTransaction(conn, async tx => {
+  if (conn) await ensureOutbox(conn);
+  const pending: SmsResult = { mode: "live", status: "unknown", body, error: "Send pending or uncertain. Check delivery before attempting another message." };
+  const previous = hosted ? await hostedReserveReceipt(id, pending) : await inTransaction(conn!, async tx => {
     const [row] = await tx.query<{ result: string }>("SELECT result FROM policy_notifications WHERE id=$1", [id]);
     if (row) return JSON.parse(row.result) as SmsResult;
     // Reserve before network I/O. A crash or timeout must never cause an automatic resend.
-    const pending: SmsResult = { mode: "live", status: "unknown", body, error: "Send pending or uncertain. Check delivery before attempting another message." };
     await tx.run("INSERT INTO policy_notifications VALUES ($1,$2,CURRENT_TIMESTAMP)", [id, JSON.stringify(pending)]);
     return null;
   });
   const notification = previous ?? await sendSms(body, { ...env, MESSAGING_CHANNEL: "whatsapp" }, request);
   if (!previous) {
-    if (notification.status === "failed") await conn.run("DELETE FROM policy_notifications WHERE id=$1", [id]);
-    else await conn.run("UPDATE policy_notifications SET result=$2 WHERE id=$1", [id, JSON.stringify(notification)]);
+    if (hosted) await hostedWriteReceipt(id, notification.status === "failed" ? null : notification);
+    else if (notification.status === "failed") await conn!.run("DELETE FROM policy_notifications WHERE id=$1", [id]);
+    else await conn!.run("UPDATE policy_notifications SET result=$2 WHERE id=$1", [id, JSON.stringify(notification)]);
   }
   return { patients, changes: changeIds.length, configured, receiptId: id, duplicate: Boolean(previous), notification };
 }
 
 export async function policyDeliveryStatus(id: string, db?: Db, env: SmsEnvironment = process.env, request: typeof fetch = fetch): Promise<SmsResult> {
-  const conn = db ?? await getDb();
-  await ensureOutbox(conn);
-  const [row] = await conn.query<{ result: string }>("SELECT result FROM policy_notifications WHERE id=$1", [id]);
-  if (!row) throw new ApiError(404, "Notification receipt not found.");
-  const result = JSON.parse(row.result) as SmsResult;
+  const hosted = !db && hostedDemoEnabled();
+  const conn = hosted ? undefined : db ?? await getDb();
+  let result: SmsResult | null;
+  if (hosted) result = await hostedReadReceipt(id);
+  else {
+    await ensureOutbox(conn!);
+    const [row] = await conn!.query<{ result: string }>("SELECT result FROM policy_notifications WHERE id=$1", [id]);
+    result = row ? JSON.parse(row.result) as SmsResult : null;
+  }
+  if (!result) throw new ApiError(404, "Notification receipt not found.");
   if (!result.messageId || !/^SM[0-9a-f]{32}$/i.test(result.messageId)) return result;
   if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) throw new ApiError(503, "Messaging credentials are missing.");
   let response: Response;
@@ -65,6 +73,7 @@ export async function policyDeliveryStatus(id: string, db?: Db, env: SmsEnvironm
   if (!data.status || !allowed.includes(data.status)) throw new ApiError(502, "Unknown delivery status.");
   result.deliveryStatus = data.status;
   if (["failed", "undelivered"].includes(data.status)) { result.status = "failed"; result.error = "Provider reports delivery failed. Check the WhatsApp Sandbox membership and messaging window."; }
-  await conn.run("UPDATE policy_notifications SET result=$2 WHERE id=$1", [id, JSON.stringify(result)]);
+  if (hosted) await hostedWriteReceipt(id, result);
+  else await conn!.run("UPDATE policy_notifications SET result=$2 WHERE id=$1", [id, JSON.stringify(result)]);
   return result;
 }
