@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getDb, inTransaction, type Db } from "../db";
 import { ApiError } from "../http";
 import { alertsForDoctor } from "../queries";
@@ -13,7 +13,8 @@ async function ensureOutbox(db: Db) {
 }
 
 /** A single digest per policy change set and recipient, retained across restarts. */
-export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvironment = process.env, request: typeof fetch = fetch) {
+/** repeat: a fresh receipt per call, so every one-click demo alert sends a new message. */
+export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvironment = process.env, request: typeof fetch = fetch, opts: { repeat?: boolean } = {}) {
   const hosted = !db && hostedDemoEnabled();
   const conn = hosted ? undefined : db ?? await getDb();
   const alerts = (await alertsForDoctor(DEMO_DOCTOR_ID, conn)).filter(a => a.status === "new" || a.status === "seen");
@@ -28,7 +29,7 @@ export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvir
   if (preview || !patients) return { patients, changes: changeIds.length, configured, setupIssue, notification: { mode: "preview", status: "preview", body } as SmsResult };
   if (!configured) throw new ApiError(503, "Configure live WhatsApp credentials, recipient, APP_URL, and messaging access key first.");
   if (setupIssue) throw new ApiError(503, setupIssue);
-  const id = createHash("sha256").update(JSON.stringify([DEMO_DOCTOR_ID, changeIds, env.TWILIO_ACCOUNT_SID, env.DOCTOR_PHONE?.replace(/^whatsapp:/, "").trim()])).digest("hex");
+  const id = createHash("sha256").update(JSON.stringify([DEMO_DOCTOR_ID, changeIds, env.TWILIO_ACCOUNT_SID, env.DOCTOR_PHONE?.replace(/^whatsapp:/, "").trim(), ...(opts.repeat ? [randomUUID()] : [])])).digest("hex");
   if (conn) await ensureOutbox(conn);
   const pending: SmsResult = { mode: "live", status: "unknown", body, error: "Send pending or uncertain. Check delivery before attempting another message." };
   const previous = hosted ? await hostedReserveReceipt(id, pending) : await inTransaction(conn!, async tx => {

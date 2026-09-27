@@ -97,3 +97,19 @@ it("API validates JSON and authorizes live actions before running or sending", a
   expect(preview.status).toBe(200);
   expect(await preview.json()).toMatchObject({ patients: 12, notification: { status: "preview" } });
 });
+
+it("one-click alert (repeat) sends a fresh message on every call", async () => {
+  await changePolicy();
+  const request = vi.fn().mockImplementation(async () => Response.json({ sid: `SM${"b".repeat(32)}`, status: "queued" }));
+  const first = await notifyPolicyChanges(false, db, env, request, { repeat: true });
+  const second = await notifyPolicyChanges(false, db, env, request, { repeat: true });
+  expect(first).toMatchObject({ duplicate: false, notification: { status: "accepted" } });
+  expect(second).toMatchObject({ duplicate: false, notification: { status: "accepted" } });
+  expect(first.receiptId).not.toBe(second.receiptId);
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it("API refuses the keyless one-click alert when sign-in is not configured", async () => {
+  const res = await POST(new Request("http://localhost/api/demo/policy", { method: "POST", body: '{"action":"alert"}' }));
+  expect(res.status).toBe(403);
+});
