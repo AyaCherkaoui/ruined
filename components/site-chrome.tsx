@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/", label: "Alerts" },
   { href: "/check", label: "Check a prescription" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/coverage-alerts", label: "Coverage Watchdog" },
 ];
 
 export function SiteChrome({ children }: { children: ReactNode }) {

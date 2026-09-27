@@ -1,5 +1,5 @@
 import { displayDrugName } from "../../components/format";
-import type { CheckResponse, DrugOption, PatientAlert, PatientSummary } from "@/lib/contract";
+import type { CheckResponse, CoverageAlert, DrugOption, PatientAlert, PatientSummary } from "@/lib/contract";
 
 export interface DrugHit extends DrugOption {
   displayName: string;
@@ -43,4 +43,8 @@ export async function dismissAlert(id: string): Promise<PatientAlert> {
 
 export async function resetDemo(): Promise<{ reset: true }> {
   return getJson<{ reset: true }>("/api/demo/reset", { method: "POST" });
+}
+
+export async function resolveCoverageAlert(id: string): Promise<CoverageAlert> {
+  return getJson<CoverageAlert>(`/api/alerts/${encodeURIComponent(id)}/resolve`, { method: "POST" });
 }
