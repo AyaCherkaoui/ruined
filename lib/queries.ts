@@ -1,5 +1,5 @@
 import { findAlternatives } from "./alternatives";
-import type { ChangeType, CheckResponse, DrugOption, PatientAlert, PatientAlertStatus, PatientSummary } from "./contract";
+import type { ChangeType, CheckResponse, Doctor, DrugOption, Patient, PatientAlert, PatientAlertStatus, PatientSummary } from "./contract";
 import { checkCoverage, type PlanKey } from "./coverage";
 import { getDb, type Db } from "./db";
 import { normalizeDrug } from "./drugs";
@@ -28,6 +28,11 @@ interface AlertRow {
   best_alternative_name: string | null;
   status: string;
   created_at: unknown;
+  from_version: string;
+  to_version: string;
+  detected_at: unknown;
+  old_tier: number | null;
+  new_tier: number | null;
 }
 
 const ALERT_SELECT = `
@@ -39,7 +44,8 @@ const ALERT_SELECT = `
          a.best_alternative_rxcui, a.best_alternative_cost,
          CASE WHEN a.best_alternative_rxcui IS NULL THEN NULL
               ELSE coalesce(alt.name, a.best_alternative_rxcui) END AS best_alternative_name,
-         a.status, a.created_at
+         a.status, a.created_at,
+         c.from_version, c.to_version, c.detected_at, c.old_tier, c.new_tier
     FROM patient_alerts a
     JOIN prescriptions rx ON rx.id = a.prescription_id
     JOIN patients p ON p.id = a.patient_id
@@ -63,6 +69,12 @@ function asMoney(value: unknown): number | null {
   if (value == null) return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+function asTier(value: unknown): number | null {
+  if (value == null) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(n) ? n : null;
 }
 
 function asStatus(value: string): PatientAlertStatus {
@@ -94,6 +106,11 @@ function toAlert(row: AlertRow): PatientAlert {
     bestAlternativeName: row.best_alternative_name,
     status: asStatus(row.status),
     createdAt: asIso(row.created_at),
+    fromVersion: row.from_version,
+    toVersion: row.to_version,
+    detectedAt: asIso(row.detected_at),
+    oldTier: asTier(row.old_tier),
+    newTier: asTier(row.new_tier),
   };
 }
 
@@ -116,6 +133,28 @@ export async function assertScenarioSchema(db: Db): Promise<void> {
       "This database is the pre-merge 20-patient file. The app reads data/scenario.duckdb (five patients, v1 and v2-cms).",
     );
   }
+}
+
+export async function doctorById(id: string, db?: Db): Promise<Doctor | null> {
+  const conn = await dbOf(db);
+  const rows = await conn.query<{ id: string; full_name: string; phone: string | null }>(
+    "SELECT id, full_name, phone FROM doctors WHERE id = $1",
+    [id],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return { id: row.id, fullName: row.full_name, phone: row.phone };
+}
+
+export async function patientById(id: string, db?: Db): Promise<Patient | null> {
+  const conn = await dbOf(db);
+  const rows = await conn.query<{ id: string; full_name: string }>(
+    "SELECT id, full_name FROM patients WHERE id = $1",
+    [id],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return { id: row.id, fullName: row.full_name };
 }
 
 export async function countPatients(db?: Db): Promise<number> {

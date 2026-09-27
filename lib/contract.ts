@@ -109,6 +109,12 @@ export interface PatientAlert {
   bestAlternativeName: string | null;
   status: PatientAlertStatus;
   createdAt: string;
+  /** Joined from coverage_changes. The versions this alert compared. */
+  fromVersion: string;
+  toVersion: string;
+  detectedAt: string;
+  oldTier: number | null;
+  newTier: number | null;
 }
 
 // ---------------------------------------------------------------------------------

@@ -41,6 +41,28 @@ export async function dismissAlert(id: string): Promise<PatientAlert> {
   return getJson<PatientAlert>(`/api/alerts/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
 }
 
+export interface NotifyResult {
+  sent: true;
+  patientId: string;
+  patientName: string;
+  at: string;
+  message: string;
+  deliveryStatus: string | null;
+  messageId: string | null;
+}
+
+export async function notifyPatient(patientId: string, message: string): Promise<NotifyResult> {
+  const result = await getJson<NotifyResult>(`/api/patients/${encodeURIComponent(patientId)}/notify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (result.sent !== true) {
+    throw new Error("The server did not confirm that an SMS was sent.");
+  }
+  return result;
+}
+
 export async function resetDemo(): Promise<{ reset: true }> {
   return getJson<{ reset: true }>("/api/demo/reset", { method: "POST" });
 }

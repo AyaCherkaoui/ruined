@@ -8,7 +8,7 @@ export default function Loading() {
           <div className="h-40 animate-pulse rounded-xl bg-neutral-100" />
           <div className="h-40 animate-pulse rounded-xl bg-neutral-100" />
         </div>
-        <p className="text-base text-neutral-600">Loading patient costs…</p>
+        <p className="text-base text-neutral-600">Loading affected patients…</p>
       </main>
     </div>
   );
