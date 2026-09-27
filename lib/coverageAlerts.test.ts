@@ -252,7 +252,7 @@ describe("API routes", () => {
     try {
       const res = await listRoute();
       expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ error: 'Unknown COVERAGE_ALERTS_SOURCE "bogus". Supported: demo' });
+      expect(await res.json()).toEqual({ error: 'Unknown COVERAGE_ALERTS_SOURCE "bogus". Supported: demo, supabase' });
     } finally {
       delete process.env.COVERAGE_ALERTS_SOURCE;
       g.__coverageAlertStore = saved;

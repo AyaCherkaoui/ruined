@@ -5,15 +5,20 @@ import type {
   CoverageAlertChangeType,
   EstimatedPatientRange,
 } from "./contract";
+import { requireUser } from "./auth";
 import { loadDemoCoverageChanges } from "./demoCoverageAlerts";
 import { ApiError } from "./http";
+import type { CoverageChangeFactType } from "./pipeline/aggregate-contract";
+import { supabaseConfigured } from "./supabase/server";
+import { createSupabaseCoverageAlertStore } from "./supabaseCoverageAlerts";
 
 // Coverage Watchdog alerts: data source -> this service -> /api/alerts -> frontend.
 //
 // A data source only returns CoverageChangeInput rows (what changed). This file owns
 // everything else: translating pipeline change names, the display summary, the action
-// steps, and open/resolved state. Swapping the demo for Person 3's Humana pipeline means
-// writing one loader and adding it to coverageAlertStore() below. Routes and frontend stay.
+// steps, and open/resolved state. With Supabase configured, alerts and each doctor's resolved
+// state live in Supabase Postgres (lib/supabaseCoverageAlerts.ts); otherwise in-memory demo
+// data is used. Routes and frontend are the same either way.
 
 // ---------------------------------------------------------------------------------
 // The integration point for Person 3
@@ -30,8 +35,8 @@ export interface CoverageChangeInput {
   /** Display name, e.g. "Eliquis (apixaban) 5 mg tablet". */
   drug: string;
   rxcui: string | null;
-  /** Either the API name ("prior_auth_added") or the legacy pipeline name ("new_prior_auth"). */
-  changeType: CoverageAlertChangeType | ChangeType;
+  /** An API name ("prior_auth_added") or a pipeline name ("new_prior_auth", "prior_authorization_added"). */
+  changeType: CoverageAlertChangeType | ChangeType | CoverageChangeFactType;
   /** Human-readable rule before, e.g. "Tier 3. No prior authorization." Null if there was none. */
   oldValue: string | null;
   /** Human-readable rule after. Null if the drug is no longer covered. */
@@ -68,19 +73,29 @@ const CHANGE_TYPES: readonly CoverageAlertChangeType[] = [
   "restored",
 ];
 
-/** lib/pipeline's names (coverage_changes.change_type) -> API names. */
-const PIPELINE_CHANGE_TYPES: Record<ChangeType, CoverageAlertChangeType> = {
+/**
+ * Pipeline names -> API names: lib/pipeline/detectChanges (ChangeType) and the Eliquis
+ * aggregate contract (CoverageChangeFactType). quantity_limit_tightened / _relaxed have no API
+ * equivalent yet, so they are rejected rather than mislabeled.
+ */
+const PIPELINE_CHANGE_TYPES: Partial<Record<ChangeType | CoverageChangeFactType, CoverageAlertChangeType>> = {
   removed: "dropped",
   tier_increase: "tier_increase",
   new_prior_auth: "prior_auth_added",
   new_step_therapy: "step_therapy_added",
   new_quantity_limit: "quantity_limit_added",
+  coverage_removed: "dropped",
+  coverage_restored: "restored",
+  tier_increased: "tier_increase",
+  tier_decreased: "tier_decrease",
+  prior_authorization_added: "prior_auth_added",
+  prior_authorization_removed: "prior_auth_removed",
 };
 
 /** Throws on an unknown name, so a pipeline typo fails loudly instead of reaching the UI. */
 export function normalizeChangeType(value: string): CoverageAlertChangeType {
   if ((CHANGE_TYPES as readonly string[]).includes(value)) return value as CoverageAlertChangeType;
-  const mapped = PIPELINE_CHANGE_TYPES[value as ChangeType];
+  const mapped = PIPELINE_CHANGE_TYPES[value as ChangeType | CoverageChangeFactType];
   if (!mapped) throw new Error(`Unknown coverage change type "${value}"`);
   return mapped;
 }
@@ -261,17 +276,27 @@ export function createCoverageAlertStore(load: LoadCoverageChanges, now: () => D
   };
 }
 
-// One store per server process (survives dev-server HMR, like getDb in lib/db.ts).
-// COVERAGE_ALERTS_SOURCE picks the loader. Add Person 3's loader here when it exists.
+// The in-memory demo store: one per server process (survives dev-server HMR, like getDb in lib/db.ts).
 const g = globalThis as unknown as { __coverageAlertStore?: CoverageAlertStore };
 
 export function coverageAlertStore(): CoverageAlertStore {
-  if (!g.__coverageAlertStore) {
-    const kind = process.env.COVERAGE_ALERTS_SOURCE || "demo";
-    if (kind !== "demo") throw new ApiError(500, `Unknown COVERAGE_ALERTS_SOURCE "${kind}". Supported: demo`);
-    g.__coverageAlertStore = createCoverageAlertStore(loadDemoCoverageChanges);
+  return (g.__coverageAlertStore ??= createCoverageAlertStore(loadDemoCoverageChanges));
+}
+
+/**
+ * The store for the current request. Checks the session first: when Supabase is configured,
+ * nobody signed out gets past this (401), whichever store is used.
+ * COVERAGE_ALERTS_SOURCE: "supabase" (default when Supabase is configured) or "demo".
+ */
+export async function requestCoverageAlertStore(): Promise<CoverageAlertStore> {
+  const session = await requireUser();
+  const kind = process.env.COVERAGE_ALERTS_SOURCE || (supabaseConfigured() ? "supabase" : "demo");
+  if (kind === "demo") return coverageAlertStore();
+  if (kind === "supabase") {
+    if (!session) throw new ApiError(500, "COVERAGE_ALERTS_SOURCE=supabase needs the Supabase URL and publishable key in .env.local");
+    return createSupabaseCoverageAlertStore(session);
   }
-  return g.__coverageAlertStore;
+  throw new ApiError(500, `Unknown COVERAGE_ALERTS_SOURCE "${kind}". Supported: demo, supabase`);
 }
 
 // ---------------------------------------------------------------------------------
@@ -285,23 +310,23 @@ function requireId(id: string): string {
 }
 
 /** Newest detection first, ties by id, so the order is stable whatever the source. */
-export async function listAlerts(store = coverageAlertStore()): Promise<CoverageAlert[]> {
-  const alerts = await store.list();
+export async function listAlerts(store?: CoverageAlertStore): Promise<CoverageAlert[]> {
+  const alerts = await (store ?? (await requestCoverageAlertStore())).list();
   return alerts.sort((a, b) => b.detectedAt.localeCompare(a.detectedAt) || a.id.localeCompare(b.id));
 }
 
-export async function getAlert(id: string, store = coverageAlertStore()): Promise<CoverageAlert> {
-  const alert = await store.get(requireId(id));
+export async function getAlert(id: string, store?: CoverageAlertStore): Promise<CoverageAlert> {
+  const alert = await (store ?? (await requestCoverageAlertStore())).get(requireId(id));
   if (!alert) throw new ApiError(404, `Alert ${id} not found`);
   return alert;
 }
 
-export async function resolveAlert(id: string, store = coverageAlertStore()): Promise<CoverageAlert> {
-  const alert = await store.resolve(requireId(id));
+export async function resolveAlert(id: string, store?: CoverageAlertStore): Promise<CoverageAlert> {
+  const alert = await (store ?? (await requestCoverageAlertStore())).resolve(requireId(id));
   if (!alert) throw new ApiError(404, `Alert ${id} not found`);
   return alert;
 }
 
-export async function resetAlerts(store = coverageAlertStore()): Promise<void> {
-  await store.reset();
+export async function resetAlerts(store?: CoverageAlertStore): Promise<void> {
+  await (store ?? (await requestCoverageAlertStore())).reset();
 }

@@ -4,6 +4,7 @@ import { SiteChrome } from "@/components/site-chrome";
 import type { Doctor } from "@/lib/contract";
 import { doctorById } from "@/lib/queries";
 import { DEMO_DOCTOR_ID } from "@/lib/scenario";
+import { supabaseConfigured } from "@/lib/supabase/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -38,7 +39,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       style={{ colorScheme: "light" }}
     >
       <body className="flex min-h-full flex-col bg-[#f3f1fb] text-[#1b1733]">
-        <SiteChrome doctor={doctor}>{children}</SiteChrome>
+        <SiteChrome doctor={doctor} authEnabled={supabaseConfigured()}>{children}</SiteChrome>
       </body>
     </html>
   );

@@ -4,10 +4,19 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { resetDemo } from "@/app/_lib/api";
+import { logout } from "@/app/login/actions";
 import type { Doctor } from "@/lib/contract";
 import { initials } from "@/lib/medishift-view";
 
-export function SiteChrome({ doctor, children }: { doctor: Doctor | null; children: ReactNode }) {
+export function SiteChrome({
+  doctor,
+  authEnabled = false,
+  children,
+}: {
+  doctor: Doctor | null;
+  authEnabled?: boolean;
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [resetting, setResetting] = useState(false);
@@ -50,13 +59,21 @@ export function SiteChrome({ doctor, children }: { doctor: Doctor | null; childr
             <span className="flex size-10 items-center justify-center rounded-full bg-[#f0a202] text-xs font-semibold text-[#2a2110]">
               {doctor ? initials(doctor.fullName) : "—"}
             </span>
-            <button
-              type="button"
-              onClick={() => setSignOutNote("Sign out is not available. Authentication is not connected.")}
-              className="hidden text-sm font-medium text-[#5c5678] hover:text-[#1b1733] sm:inline"
-            >
-              Sign out
-            </button>
+            {authEnabled ? (
+              <form action={logout}>
+                <button type="submit" className="hidden text-sm font-medium text-[#5c5678] hover:text-[#1b1733] sm:inline">
+                  Sign out
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSignOutNote("Sign out is not available. Authentication is not connected.")}
+                className="hidden text-sm font-medium text-[#5c5678] hover:text-[#1b1733] sm:inline"
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </div>
         {signOutNote ? (
