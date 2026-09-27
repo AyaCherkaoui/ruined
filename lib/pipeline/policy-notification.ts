@@ -7,6 +7,11 @@ import type { SmsResult } from "../sms";
 import { liveSmsConfigured, sendSms, type SmsEnvironment } from "../twilio";
 import { hostedDemoEnabled, hostedReadReceipt, hostedReserveReceipt, hostedWriteReceipt } from "../hostedDemo";
 
+/** Deliberately generic: only the patient count and the app link. No insurer, drug, plan, or patient details. */
+export function policyMessage(patients: number, link: string): string {
+  return `HeadsUp: A coverage change affects ${patients} of your patients. Review in HeadsUp: ${link}`;
+}
+
 async function ensureOutbox(db: Db) {
   await db.run(`CREATE TABLE IF NOT EXISTS policy_notifications (
     id VARCHAR PRIMARY KEY, result VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`);
@@ -22,7 +27,7 @@ export async function notifyPolicyChanges(preview = true, db?: Db, env: SmsEnvir
   const patients = new Set(alerts.map(a => a.patientId)).size;
   const url = new URL(env.APP_URL || "http://localhost:3000");
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new ApiError(503, "Configure a valid APP_URL.");
-  const body = `HeadsUp demo: ${patients} synthetic patients need review after ${changeIds.length} recorded policy changes. Review coverage and alternatives: ${new URL("/", url.origin).href}`;
+  const body = policyMessage(patients, new URL("/", url.origin).href);
   const configured = liveSmsConfigured({ ...env, MESSAGING_CHANNEL: "whatsapp" });
   const setupIssue = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
     ? "Set APP_URL to an address reachable from the demo phone before sending." : null;

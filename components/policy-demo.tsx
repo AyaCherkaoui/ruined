@@ -30,8 +30,8 @@ export function PolicyDemo() {
     finally { setBusy(null); }
   }
   return <section className="rounded-3xl bg-white p-5 ring-1 ring-[#e6e1f2]" aria-label="Policy change demo" aria-busy={Boolean(busy)}>
-    <h2 className="font-semibold text-[#1b1733]">Policy change → WhatsApp demo</h2>
-    <p className="mt-2 text-sm text-[#5c5678]">Synthetic patients · Wellcare and CareSource · Farxiga and exenatide. Replays the recorded CMS insurance changes, matches affected prescriptions, and alerts the doctor on WhatsApp.</p>
+    <h2 className="font-semibold text-[#1b1733]">Insurance policy change → WhatsApp alert</h2>
+    <p className="mt-2 text-sm text-[#5c5678]">Wellcare and CareSource · Farxiga and exenatide. Applies the insurer formulary change, finds the affected prescriptions, and alerts the doctor on WhatsApp.</p>
     <div className="mt-3 flex flex-wrap items-center gap-3">
       <button disabled={Boolean(busy)} onClick={() => void run("alert")} className="min-h-11 rounded-full bg-[#5c4dff] px-5 text-sm font-semibold text-white disabled:opacity-50">{busy === "alert" ? "Sending…" : "Simulate insurance change & send WhatsApp"}</button>
       <button disabled={Boolean(busy)} onClick={() => void run("preview")} className="min-h-11 rounded-full bg-[#ece7ff] px-5 text-sm font-semibold text-[#4b3fd4] disabled:opacity-50">{busy === "preview" ? "Processing…" : "Preview only"}</button>

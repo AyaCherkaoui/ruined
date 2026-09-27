@@ -85,12 +85,7 @@ export function SiteChrome({
       <div className="flex-1">{children}</div>
       <footer className="border-t border-[#e6e1f2]">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-xs text-[#6d6788] sm:px-6">
-          <Link href="/check" className={pathname === "/check" ? "font-semibold text-[#1b1733]" : "hover:text-[#1b1733]"}>
-            Check a prescription
-          </Link>
-          <Link href="/dashboard" className={pathname === "/dashboard" ? "font-semibold text-[#1b1733]" : "hover:text-[#1b1733]"}>
-            Cost chart
-          </Link>
+          {/* Patient-level pages (/check, /dashboard, /review) are not linked: the console shows drugs x plans only. */}
           <Link
             href="/coverage-alerts"
             className={pathname === "/coverage-alerts" ? "font-semibold text-[#1b1733]" : "hover:text-[#1b1733]"}

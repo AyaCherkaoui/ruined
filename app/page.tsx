@@ -1,29 +1,27 @@
-import { MedishiftDashboard, type DashboardItem } from "@/components/medishift-dashboard";
-import type { Alternative } from "@/lib/contract";
+import { DrugCoverageDashboard } from "@/components/drug-coverage-dashboard";
+import type { CheckResponse } from "@/lib/contract";
+import { buildDrugPlanRows } from "@/lib/drug-coverage-view";
+import { listAppChanges } from "@/lib/pipeline/app-runner";
 import { alertsForDoctor, runCheck } from "@/lib/queries";
 import { DEMO_DOCTOR_ID } from "@/lib/scenario";
 
 export const dynamic = "force-dynamic";
 
+// Drugs x insurance plans only. Patient matches stay on the server: they are used for the
+// aggregate count and the WhatsApp alert, and are never sent to the browser.
 export default async function Home() {
-  const alerts = await alertsForDoctor(DEMO_DOCTOR_ID);
-  const items: DashboardItem[] = [];
-  const cache = new Map<string, Alternative[]>();
+  const [alerts, changes] = await Promise.all([alertsForDoctor(DEMO_DOCTOR_ID), listAppChanges()]);
+  const checks = new Map<string, CheckResponse | null>();
   for (const alert of alerts) {
+    const key = `${alert.contractId}:${alert.planId}:${alert.segmentId}:${alert.rxcui}`;
+    if (checks.has(key)) continue;
     try {
-      const key = `${alert.contractId}:${alert.planId}:${alert.segmentId}:${alert.rxcui}`;
-      const alternatives = cache.get(key) ?? (await runCheck({
-        contractId: alert.contractId, planId: alert.planId, segmentId: alert.segmentId, rxcui: alert.rxcui,
-      })).alternatives;
-      cache.set(key, alternatives);
-      items.push({ alert, alternatives, checkError: null });
-    } catch (err: unknown) {
-      items.push({
-        alert,
-        alternatives: [],
-        checkError: err instanceof Error ? err.message : "Unable to load formulary alternatives.",
-      });
+      checks.set(key, await runCheck({ contractId: alert.contractId, planId: alert.planId, segmentId: alert.segmentId, rxcui: alert.rxcui }));
+    } catch {
+      checks.set(key, null);
     }
   }
-  return <MedishiftDashboard items={items} />;
+  const groups = buildDrugPlanRows(alerts, changes, checks);
+  const affectedPatients = new Set(alerts.map((a) => a.patientId)).size;
+  return <DrugCoverageDashboard groups={groups} affectedPatients={affectedPatients} />;
 }
