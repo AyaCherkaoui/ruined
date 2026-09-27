@@ -62,3 +62,12 @@ newValue, effectiveDate, detectedAt, source, sourceUrl). The service translates 
 names (`new_prior_auth` -> `prior_auth_added`, `removed` -> `dropped`), writes the summary and
 action steps, and tracks open/resolved. Add the loader to `coverageAlertStore()` and set
 `COVERAGE_ALERTS_SOURCE`. Routes and frontend do not change.
+
+## Aggregate pipeline
+
+Reproducible CMS bootstrap and the isolated Eliquis aggregate pipeline (milestones
+01-08): [source and ingestion guide](docs/pipeline-milestones.md) and
+[offline demo, daily runner, cross-check, and console outbox](docs/pipeline-operations.md).
+
+Run the offline real-baseline proof with `npm run pipeline:e2e` (no network or
+preexisting database required).

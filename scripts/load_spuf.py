@@ -71,7 +71,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--zip", default=str(ROOT / "data/raw/SPUF_2026_20260701.zip"))
     ap.add_argument("--work", default=str(ROOT / "data/raw/extracted"))
-    ap.add_argument("--db", default=str(ROOT / "data/ruined.duckdb"))
+    ap.add_argument("--db", default=os.environ.get("RUINED_DB", str(ROOT / "data/scenario.duckdb")))
     ap.add_argument("--data-version", default="v1")
     ap.add_argument("--pricing-days", default="30,90", help="comma list of DAYS_SUPPLY values to keep")
     args = ap.parse_args()

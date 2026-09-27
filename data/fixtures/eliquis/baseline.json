@@ -1,0 +1,104 @@
+{
+  "format": "cms-eliquis-snapshot-v1",
+  "releaseId": "synthetic-baseline",
+  "releaseHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "capturedAt": "2026-09-25T08:00:00.000Z",
+  "effectiveAt": null,
+  "provenance": "simulated",
+  "plans": [
+    {
+      "contractId": "HDEMO",
+      "planId": "001",
+      "segmentId": "000",
+      "sourcePlanId": "cms-synthetic-1"
+    },
+    {
+      "contractId": "HDEMO",
+      "planId": "002",
+      "segmentId": "000",
+      "sourcePlanId": "cms-synthetic-2"
+    }
+  ],
+  "entries": [
+    {
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "cms-synthetic-1"
+      },
+      "rxcui": "1364447",
+      "rows": [
+        {
+          "ndc": "00003089421",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "cms-synthetic-1"
+      },
+      "rxcui": "1364441",
+      "rows": [
+        {
+          "ndc": "00003089321",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "002",
+        "segmentId": "000",
+        "sourcePlanId": "cms-synthetic-2"
+      },
+      "rxcui": "1364447",
+      "rows": [
+        {
+          "ndc": "00003089421",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "002",
+        "segmentId": "000",
+        "sourcePlanId": "cms-synthetic-2"
+      },
+      "rxcui": "1364441",
+      "rows": [
+        {
+          "ndc": "00003089321",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    }
+  ]
+}

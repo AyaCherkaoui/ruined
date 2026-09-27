@@ -1,0 +1,104 @@
+{
+  "format": "cms-eliquis-snapshot-v1",
+  "releaseId": "v2-cms",
+  "releaseHash": "51d0d4177f00458ef420da1491f91f2e4f0a17dc11c253232a9bcc06572d21f2",
+  "capturedAt": "2026-09-27T00:00:00.000Z",
+  "effectiveAt": null,
+  "provenance": "replay",
+  "plans": [
+    {
+      "contractId": "S5884",
+      "planId": "135",
+      "segmentId": "000",
+      "sourcePlanId": "S5884-135-000"
+    },
+    {
+      "contractId": "S5884",
+      "planId": "156",
+      "segmentId": "000",
+      "sourcePlanId": "S5884-156-000"
+    }
+  ],
+  "entries": [
+    {
+      "plan": {
+        "contractId": "S5884",
+        "planId": "135",
+        "segmentId": "000",
+        "sourcePlanId": "S5884-135-000"
+      },
+      "rxcui": "1364447",
+      "rows": [
+        {
+          "ndc": "00003089421",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 74,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "S5884",
+        "planId": "135",
+        "segmentId": "000",
+        "sourcePlanId": "S5884-135-000"
+      },
+      "rxcui": "1364441",
+      "rows": [
+        {
+          "ndc": "00003089321",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "S5884",
+        "planId": "156",
+        "segmentId": "000",
+        "sourcePlanId": "S5884-156-000"
+      },
+      "rxcui": "1364447",
+      "rows": [
+        {
+          "ndc": "00003089421",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 74,
+          "quantity_limit_days": 30
+        }
+      ]
+    },
+    {
+      "plan": {
+        "contractId": "S5884",
+        "planId": "156",
+        "segmentId": "000",
+        "sourcePlanId": "S5884-156-000"
+      },
+      "rxcui": "1364441",
+      "rows": [
+        {
+          "ndc": "00003089321",
+          "tier": 3,
+          "prior_authorization": false,
+          "step_therapy": false,
+          "quantity_limit": true,
+          "quantity_limit_amount": 60,
+          "quantity_limit_days": 30
+        }
+      ]
+    }
+  ]
+}

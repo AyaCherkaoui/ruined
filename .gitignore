@@ -47,6 +47,10 @@ next-env.d.ts
 .venv
 *.duckdb.wal
 *.duckdb.tmp
+*.pipeline.lock
 
 # generated patient-notification audio (lib/message.ts, task 3)
 /public/audio/
+
+# Local planning notes (intentionally never committed)
+/person3-milestones/

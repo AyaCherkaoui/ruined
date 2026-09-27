@@ -1,5 +1,18 @@
 # PROGRESS
 
+## Milestone 00: Eliquis aggregate contract lock (2026-09-26)
+
+Created the tracked contract proposal in
+`docs/decisions/0001-eliquis-aggregate-contract.md` with a redacted review payload in
+`docs/contracts/eliquis-aggregate-v1.example.json`. The decision keeps the current
+NovoLog/patient demo intact while proposing an additive, no-patient-data Eliquis path for
+RXCUIs `1364447` and `1364441`, Humana FHIR with replay support and a gated CMS fallback,
+field-level symmetric change facts, and typed aggregate doctor-impact estimates.
+
+Status: **awaiting Person 2 / API-owner approval**. No shared schema, `lib/contract.ts`, or
+`app/api` changes are authorized until the ADR checklist is acknowledged and its status is
+changed from Proposed to Accepted.
+
 Every coverage decision comes from our data + deterministic code, never an LLM.
 
 ## Clean slate after `api` → `frontend` merge (2026-09-26)

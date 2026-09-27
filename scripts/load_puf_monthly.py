@@ -66,7 +66,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--zip", default=str(ROOT / "data/raw/2026_20260916.zip"))
     ap.add_argument("--work", default=str(ROOT / "data/raw/extracted_monthly"))
-    ap.add_argument("--db", default=str(ROOT / "data/ruined.duckdb"))
+    ap.add_argument("--db", default=os.environ.get("RUINED_DB", str(ROOT / "data/scenario.duckdb")))
     ap.add_argument("--data-version", default="v2-cms")
     ap.add_argument("--pricing-source", default="v1", help="data_version to copy pricing rows from")
     args = ap.parse_args()

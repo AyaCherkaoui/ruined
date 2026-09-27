@@ -52,7 +52,7 @@ function changeId(fromVersion: string, toVersion: string, formularyId: string, r
   return crypto.createHash("sha1").update([fromVersion, toVersion, formularyId, rxcui, changeType].join(":")).digest("hex").slice(0, 20);
 }
 
-function adverseTypes(r: DiffRow): ChangeType[] {
+export function adverseTypes(r: DiffRow): ChangeType[] {
   const types: ChangeType[] = [];
   if (r.new_tier === null) types.push("removed");
   else if (r.old_tier !== null && r.new_tier > r.old_tier) types.push("tier_increase");
