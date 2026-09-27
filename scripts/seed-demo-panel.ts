@@ -30,14 +30,10 @@ export const DEMO_PANEL: {
   { id: "pt-101", fullName: "Ava Rahman", rxcui: "1486977", plan: { contractId: "H0111", planId: "001", segmentId: "000" }, status: "new" },
   { id: "pt-102", fullName: "Benito Alvarez", rxcui: "1486977", plan: { contractId: "H1112", planId: "038", segmentId: "000" }, status: "seen" },
   { id: "pt-103", fullName: "Camille Brooks", rxcui: "1486981", plan: { contractId: "H0111", planId: "001", segmentId: "000" }, status: "switched" },
-  { id: "pt-104", fullName: "Derek Okonkwo", rxcui: "1091650", plan: { contractId: "H5422", planId: "011", segmentId: "000" }, status: "new" },
-  { id: "pt-105", fullName: "Elena Vasquez", rxcui: "1091650", plan: { contractId: "H5422", planId: "015", segmentId: "000" }, status: "dismissed" },
-  { id: "pt-106", fullName: "Farah Siddiqui", rxcui: "1091654", plan: { contractId: "H5422", planId: "011", segmentId: "000" }, status: "new" },
   { id: "pt-107", fullName: "George Hale", rxcui: "847910", plan: { contractId: "H8390", planId: "017", segmentId: "000" }, status: "new" },
   { id: "pt-108", fullName: "Helen Cho", rxcui: "847910", plan: { contractId: "H8390", planId: "017", segmentId: "000" }, status: "seen" },
   { id: "pt-109", fullName: "Ivan Petrov", rxcui: "847915", plan: { contractId: "H8390", planId: "017", segmentId: "000" }, status: "switched" },
   { id: "pt-110", fullName: "Julia Marsh", rxcui: "1486981", plan: { contractId: "H1112", planId: "038", segmentId: "000" }, status: "new" },
-  { id: "pt-111", fullName: "Kenji Watanabe", rxcui: "1091654", plan: { contractId: "H5422", planId: "015", segmentId: "000" }, status: "new" },
   { id: "pt-112", fullName: "Lila Grant", rxcui: "847915", plan: { contractId: "H8390", planId: "015", segmentId: "000" }, status: "new" },
 ];
 
@@ -64,7 +60,25 @@ async function changeIdFor(db: Db, rxcui: string, plan: Plan): Promise<string> {
   return id;
 }
 
+// Edarbi (pt-104/105/106/111) was dropped from the panel: in v2-cms those Anthem plans replaced
+// brand Edarbi with generic azilsartan, the same drug, so it is not a real loss of coverage.
+async function removeRetiredPatients(db: Db): Promise<void> {
+  const keep = DEMO_PANEL.map((patient) => patient.id);
+  const marks = keep.map((_, i) => `$${i + 1}`).join(", ");
+  const retired = await db.query<{ id: string }>(
+    `SELECT id FROM patients WHERE id LIKE 'pt-1%' AND id NOT IN (${marks})`,
+    keep,
+  );
+  for (const { id } of retired) {
+    await db.run("DELETE FROM patient_alerts WHERE patient_id = $1", [id]);
+    await db.run("DELETE FROM prescriptions WHERE patient_id = $1", [id]);
+    await db.run("DELETE FROM patient_coverage WHERE patient_id = $1", [id]);
+    await db.run("DELETE FROM patients WHERE id = $1", [id]);
+  }
+}
+
 export async function seedDemoPanel(db: Db): Promise<void> {
+  await removeRetiredPatients(db);
   await ensureDoctor(db, ARCHIVE_DOCTOR.id, ARCHIVE_DOCTOR.fullName);
   await ensureDoctor(db, DEMO_DOCTOR_ID, "Dr. Maria Alvarez");
   await db.run("UPDATE prescriptions SET doctor_id = $1 WHERE doctor_id = $2 AND rxcui = $3", [

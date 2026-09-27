@@ -2,8 +2,10 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Check, Search, X } from "lucide-react";
-import { checkDrug, searchDrugs, searchPatients, type DrugHit } from "@/app/_lib/api";
-import type { Alternative, CheckResponse, PatientSummary } from "@/lib/contract";
+import { checkDrug, checkInsurer, searchDrugs, searchPatients, type DrugHit } from "@/app/_lib/api";
+import type { Alternative, CheckResponse, CoverageResult, InsurerCheck, PatientSummary } from "@/lib/contract";
+import { compareWithCms } from "@/lib/insurer-compare";
+import { calendarLabel } from "@/lib/medishift-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -186,6 +188,7 @@ export function DoctorTool() {
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [prescribedRxcui, setPrescribedRxcui] = useState<string | null>(null);
+  const [insurer, setInsurer] = useState<InsurerCheck | "loading" | null>(null);
 
   const drugInputRef = useRef<HTMLInputElement>(null);
   const checkRequest = useRef(0);
@@ -273,11 +276,26 @@ export function DoctorTool() {
     setCheckError(null);
     setCheckLoading(true);
     setPrescribedRxcui(null);
+    setInsurer(null);
     try {
       const result = await checkDrug(patientId, rxcui);
       if (requestId !== checkRequest.current) return;
       setCheck(result);
       window.setTimeout(() => resultRef.current?.scrollIntoView({ block: "nearest" }), 0);
+      setInsurer("loading");
+      checkInsurer(patientId, rxcui)
+        .then((answer) => {
+          if (requestId === checkRequest.current) setInsurer(answer);
+        })
+        .catch((error: unknown) => {
+          if (requestId !== checkRequest.current) return;
+          setInsurer({
+            status: "unavailable",
+            insurer: "Insurer",
+            error: error instanceof Error ? error.message : "Insurer check failed",
+            source: "",
+          });
+        });
     } catch (error: unknown) {
       if (requestId !== checkRequest.current) return;
       setCheckError(error instanceof Error ? error.message : "Coverage check failed");
@@ -410,6 +428,7 @@ export function DoctorTool() {
                 {check && selectedDrug ? (
                   <ResultCard
                     check={check}
+                    insurer={insurer}
                     prescribedRxcui={prescribedRxcui}
                     onPrescribe={prescribe}
                   />
@@ -421,12 +440,75 @@ export function DoctorTool() {
   );
 }
 
+function InsurerSection({ cms, insurer }: { cms: CoverageResult; insurer: InsurerCheck | "loading" | null }) {
+  if (insurer === null) return null;
+  let body;
+  if (insurer === "loading") {
+    body = <p className="text-sm text-neutral-600">Asking the insurer&apos;s formulary API…</p>;
+  } else if (insurer.status === "unsupported") {
+    body = (
+      <p className="text-sm text-neutral-600">
+        Only Humana publishes an open formulary API. {insurer.planName} can&apos;t be cross-checked.
+      </p>
+    );
+  } else if (insurer.status === "unavailable") {
+    body = (
+      <p className="text-sm text-neutral-600">
+        Couldn&apos;t reach {insurer.insurer}&apos;s API ({insurer.error}). The CMS result above still applies.
+      </p>
+    );
+  } else {
+    const comparison = compareWithCms(cms, insurer);
+    const updated = insurer.status === "listed" && insurer.lastUpdated ? calendarLabel(insurer.lastUpdated) : null;
+    body = (
+      <div className="flex flex-col gap-1.5">
+        {insurer.status === "listed" ? (
+          <p className="text-sm text-neutral-800">
+            <span className="font-medium text-neutral-950">{insurer.insurer} API</span>
+            {" · "}
+            {insurer.tierLabel ?? `Tier ${insurer.tier ?? "?"}`}
+            {insurer.tier !== null ? ` (tier ${insurer.tier})` : ""}
+            {insurer.priorAuth ? " · Prior auth" : ""}
+            {insurer.stepTherapy ? " · Step therapy" : ""}
+            {insurer.quantityLimit ? " · Quantity limit" : ""}
+            {updated ? <span className="text-neutral-500"> · updated {updated}</span> : null}
+          </p>
+        ) : (
+          <p className="text-sm text-neutral-800">
+            <span className="font-medium text-neutral-950">{insurer.insurer} API</span> · no {insurer.planYearId.slice(-4)} record
+            for this plan
+          </p>
+        )}
+        {comparison
+          ? comparison.notes.map((note) => (
+              <p key={note} className={`text-sm ${comparison.agrees ? "text-emerald-800" : "font-medium text-amber-800"}`}>
+                {note}
+                {comparison.agrees ? "" : " Confirm with the plan before prescribing."}
+              </p>
+            ))
+          : null}
+        <a href={insurer.sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-neutral-500 underline">
+          {insurer.source}
+        </a>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
+      <h3 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">Insurer&apos;s own formulary</h3>
+      {body}
+    </div>
+  );
+}
+
 function ResultCard({
   check,
+  insurer,
   prescribedRxcui,
   onPrescribe,
 }: {
   check: CheckResponse;
+  insurer: InsurerCheck | "loading" | null;
   prescribedRxcui: string | null;
   onPrescribe: (alternative: Alternative) => void;
 }) {
@@ -449,6 +531,7 @@ function ResultCard({
           <Badge className={`h-7 px-2.5 text-sm ${status.badge}`}>{status.label}</Badge>
         </div>
         {restrictionBadges(coverage)}
+        <InsurerSection cms={coverage} insurer={insurer} />
         <div className="flex flex-col gap-3 border-t border-neutral-200 pt-4">
           <h3 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">Cheaper alternatives</h3>
           {alternatives.length === 0 ? (

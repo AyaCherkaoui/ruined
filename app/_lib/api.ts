@@ -1,5 +1,5 @@
 import { displayDrugName } from "../../components/format";
-import type { CheckResponse, CoverageAlert, DrugOption, PatientAlert, PatientSummary } from "@/lib/contract";
+import type { CheckResponse, CoverageAlert, DrugOption, InsurerCheck, PatientAlert, PatientSummary } from "@/lib/contract";
 
 export interface DrugHit extends DrugOption {
   displayName: string;
@@ -31,6 +31,14 @@ export async function searchDrugs(patientId: string, q: string): Promise<DrugHit
 
 export async function checkDrug(patientId: string, rxcui: string): Promise<CheckResponse> {
   return getJson<CheckResponse>("/api/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patientId, rxcui }),
+  });
+}
+
+export async function checkInsurer(patientId: string, rxcui: string): Promise<InsurerCheck> {
+  return getJson<InsurerCheck>("/api/insurer-check", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patientId, rxcui }),

@@ -48,6 +48,31 @@ export interface CheckResponse {
   alternatives: Alternative[];
 }
 
+/**
+ * What the insurer's own public formulary API says about one drug on one plan, next to the CMS
+ * answer. Only Humana publishes an open (tokenless) formulary API today; other insurers are
+ * "unsupported". "not_listed" means no record under the NDCs we checked, not proof of non-coverage.
+ */
+export type InsurerCheck =
+  | { status: "unsupported"; planName: string }
+  | {
+      status: "listed";
+      insurer: string;
+      planYearId: string;
+      ndc: string;
+      productName: string;
+      tier: number | null;
+      tierLabel: string | null;
+      priorAuth: boolean;
+      stepTherapy: boolean;
+      quantityLimit: boolean;
+      lastUpdated: string | null;
+      source: string;
+      sourceUrl: string;
+    }
+  | { status: "not_listed"; insurer: string; planYearId: string; ndcsChecked: string[]; source: string; sourceUrl: string }
+  | { status: "unavailable"; insurer: string; error: string; source: string };
+
 /** A patient plus the plan they are enrolled in. The plan is enrollment, not a demographic. */
 export interface PatientSummary {
   id: string;

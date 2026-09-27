@@ -733,3 +733,19 @@ behavior. 26-29 and 31 still apply (formulary/version mechanics, not patient-fac
 - No endpoint sets `AlertStatus` to `"seen"` (see assumption 32) -- `totalAtRisk` in `GET /api/digest` only ever reflects `"new"` alerts today.
 - `POST /api/alerts/:id/switch` trusts the caller's `rxcui` (see assumption 33); a UI should constrain the choice to `bestAlternative` or another plan-covered drug.
 - Task 3 (patient-language voice/text notification) and Task 4 (doctor email digest) are not built yet -- see the Status table.
+- A CMS "removed" can be a replacement, not a loss: v2-cms swapped brand Edarbi for generic azilsartan on the
+  Anthem H5422 plans, and old Rybelsus 3/7/14 mg for new oral semaglutide 1.5/4/9 mg. Newly added NDCs have no
+  v2-cms price (pricing is copied from v1), so `findAlternatives` cannot surface the added generic. The Edarbi
+  patients were dropped from the MediShift demo panel for this reason (8 patients remain: Farxiga + exenatide).
+
+## Insurer formulary API (second source)
+- `lib/insurer-check.ts` asks Humana's public Da Vinci Drug Formulary FHIR API (`https://fhir.humana.com/api`,
+  no token) what it lists for a drug on a Humana plan, and `POST /api/insurer-check` exposes it. The prescription
+  checker shows it next to the CMS result with a CMS-vs-insurer comparison (`lib/insurer-compare.ts`).
+- Lookup: CMS NDCs for the RXCUI (the plan's own first), `MedicationKnowledge?code=NDC` paged 100 at a time with
+  `_skip` in parallel, matched on the `CONTRACT-PLAN-SEGMENT-2026` PlanID extension. Cached 1 hour in memory.
+- Probed 2026-09-27: Cigna (`fhir.cigna.com/DrugFormulary/v1`) needs an auth token, Elevance/Anthem needs
+  registration, UHC did not respond, no public endpoint found for Aetna, Centene/Wellcare, CareSource. Other
+  insurers show "can't be cross-checked".
+- Humana records were last updated 2026-06-10, older than the 2026-09-16 CMS monthly file, so a disagreement
+  means "confirm with the plan", not that either source is wrong.

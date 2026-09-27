@@ -105,7 +105,7 @@ export function formatTimestamp(iso: string): string {
 }
 
 /** Calendar date as written on the timestamp, so server and browser render the same text. */
-function calendarLabel(iso: string): string | null {
+export function calendarLabel(iso: string): string | null {
   const match = normalizeTimestamp(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return null;
   const month = MONTHS[Number(match[2]) - 1];

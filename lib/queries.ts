@@ -1,9 +1,20 @@
 import { findAlternatives } from "./alternatives";
-import type { ChangeType, CheckResponse, Doctor, DrugOption, Patient, PatientAlert, PatientAlertStatus, PatientSummary } from "./contract";
-import { checkCoverage, type PlanKey } from "./coverage";
+import type {
+  ChangeType,
+  CheckResponse,
+  Doctor,
+  DrugOption,
+  InsurerCheck,
+  Patient,
+  PatientAlert,
+  PatientAlertStatus,
+  PatientSummary,
+} from "./contract";
+import { checkCoverage, PlanNotFoundError, type PlanKey } from "./coverage";
 import { getDb, inTransaction, type Db } from "./db";
 import { normalizeDrug } from "./drugs";
 import { ApiError } from "./http";
+import { insurerCheck } from "./insurer-check";
 import { CURRENT_DATA_VERSION } from "./scenario";
 
 const STATUSES = new Set<PatientAlertStatus>(["new", "seen", "switched", "dismissed"]);
@@ -310,6 +321,24 @@ export async function runCheck(body: CheckRequest, db?: Db): Promise<CheckRespon
   });
   const alternatives = await findAlternatives(plan, rxcui, { db: conn, dataVersion: CURRENT_DATA_VERSION });
   return { coverage, alternatives };
+}
+
+export async function runInsurerCheck(
+  body: CheckRequest,
+  db?: Db,
+  opts: { fetch?: typeof fetch } = {},
+): Promise<InsurerCheck> {
+  const conn = await dbOf(db);
+  const plan = await planForRequest(body, conn);
+  const rxcui = body.rxcui?.trim();
+  if (!rxcui) throw new ApiError(400, "Provide rxcui");
+  const rows = await conn.query<{ plan_name: string }>(
+    `SELECT plan_name FROM plans
+      WHERE data_version = $1 AND contract_id = $2 AND plan_id = $3 AND segment_id = $4`,
+    [CURRENT_DATA_VERSION, plan.contractId, plan.planId, plan.segmentId],
+  );
+  if (!rows[0]) throw new PlanNotFoundError(plan, CURRENT_DATA_VERSION);
+  return insurerCheck(conn, plan, rows[0].plan_name, rxcui, opts);
 }
 
 export async function dismissAlert(id: string, db?: Db): Promise<PatientAlert> {
