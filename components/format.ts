@@ -1,10 +1,16 @@
 import type { CoverageStatus } from "@/lib/contract";
 
-/** Brand in brackets when RxNorm includes one; otherwise the first few words. */
+/**
+ * Brand in brackets when RxNorm includes one. Otherwise the ingredient and strength,
+ * without a leading pack size ("3 ML", "60 ACTUAT") or the dose form.
+ */
 export function displayDrugName(name: string): string {
   const brand = name.match(/\[([^\]]+)\]/);
   if (brand?.[1]?.trim()) return brand[1].trim();
-  return name.trim().split(/\s+/).filter(Boolean).slice(0, 3).join(" ");
+  const trimmed = name.trim().replace(/^\d+(?:\.\d+)?\s+(?:ML|ACTUAT|HR)\s+/i, "");
+  const strength = trimmed.match(/^(.*?\d+(?:\.\d+)?\s*(?:MG|MCG|UNT|ML|%)(?:\/[A-Z]+)?)\b/i);
+  if (strength?.[1]) return strength[1].trim();
+  return trimmed.split(/\s+/).filter(Boolean).slice(0, 3).join(" ");
 }
 
 /** Every dollar figure on screen is an estimate. */

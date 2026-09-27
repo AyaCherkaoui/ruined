@@ -11,8 +11,11 @@ describe("displayDrugName", () => {
     ).toBe("Ozempic");
   });
 
-  it("uses the first few words when there is no brand", () => {
+  it("uses the ingredient and strength when there is no brand", () => {
     expect(displayDrugName("lisinopril 20 MG Oral Tablet")).toBe("lisinopril 20 MG");
+    expect(displayDrugName("candesartan cilexetil 8 MG Oral Tablet")).toBe("candesartan cilexetil 8 MG");
+    expect(displayDrugName("3 ML liraglutide 6 MG/ML Pen Injector")).toBe("liraglutide 6 MG/ML");
+    expect(displayDrugName("60 ACTUAT exenatide 0.01 MG/ACTUAT Pen Injector")).toBe("exenatide 0.01 MG/ACTUAT");
   });
 });
 

@@ -99,6 +99,8 @@ export interface PatientAlert {
   drugName: string;
   contractId: string;
   planId: string;
+  /** Joined from the patient's enrollment. Not a column on patient_alerts. */
+  segmentId: string;
   /** Joined from the plan file for display. Not a column on patient_alerts. */
   planName: string;
   oldMonthlyCost: number | null;

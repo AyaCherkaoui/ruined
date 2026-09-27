@@ -5,18 +5,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { notifyPatient } from "@/app/_lib/api";
 import type { CheckResponse, PatientAlert } from "@/lib/contract";
-import { displayDrugName, estMoney, STATUS_STYLE } from "@/components/format";
+import { displayDrugName, estMoney } from "@/components/format";
 import { saveNotice, saveSelection, useMedishiftSession } from "@/components/medishift-session";
-import {
-  alternativeSavingsLabel,
-  changeLabel,
-  coverageHeadline,
-  coverageSms,
-  displayPatientId,
-  formatTimestamp,
-  impactSentence,
-  initials,
-} from "@/lib/medishift-view";
+import { coverageSms, displayPatientId, initials } from "@/lib/medishift-view";
 
 export function PatientReview({
   alert,
@@ -36,7 +27,6 @@ export function PatientReview({
   const [sendError, setSendError] = useState<string | null>(notice?.error ?? null);
   const alternatives = check?.alternatives ?? [];
   const message = coverageSms(alert, selection?.drugName ?? null);
-  const coverage = check?.coverage ?? null;
 
   function choose(rxcui: string) {
     const alternative = alternatives.find((item) => item.rxcui === rxcui);
@@ -99,126 +89,55 @@ export function PatientReview({
       </header>
 
       <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2]">
-        <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">CURRENT MEDICATION</h2>
-        <p className="mt-3 text-xl font-semibold text-[#1b1733]">{displayDrugName(alert.drugName)}</p>
-        <p className="mt-1 text-sm text-[#5c5678]">{alert.drugName}</p>
-        <p className="mt-1 text-sm text-[#5c5678]">RXCUI {alert.rxcui}</p>
-        <p className="mt-4 text-sm font-semibold text-[#9b3b3b]">{coverageHeadline(alert)}</p>
-        <p className="mt-1 text-sm text-[#3c3658]">{alert.planName}</p>
-        <p className="text-sm text-[#3c3658]">
-          {alert.contractId}-{alert.planId}
-        </p>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Fact label="Last covered estimate" value={`${estMoney(alert.oldMonthlyCost)}/mo`} />
-          <Fact label="Current estimate" value={alert.newMonthlyCost == null ? "Not covered" : `${estMoney(alert.newMonthlyCost)}/mo`} />
-        </dl>
-        {coverage ? (
-          <p className="mt-4 text-sm text-[#3c3658]">
-            Live check on {alert.toVersion}: {STATUS_STYLE[coverage.status].label}
-            {coverage.tier != null ? `, tier ${coverage.tier}` : ""}
-            {coverage.priorAuth ? ", prior auth" : ""}
-            {coverage.stepTherapy ? ", step therapy" : ""}
-            {coverage.quantityLimit ? ", quantity limit" : ""}
-            {coverage.estMonthlyCost != null ? `, ${estMoney(coverage.estMonthlyCost)}/mo` : ""}. This is an estimate.
-          </p>
-        ) : null}
+        <p className="text-xl font-semibold text-[#1b1733]">{displayDrugName(alert.drugName)}</p>
+        <p className="mt-1 text-sm text-[#3c3658]">Not covered · {alert.planName}</p>
       </section>
 
       <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2]">
-        <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">FORMULARY CHANGE</h2>
-        <p className="mt-3 text-lg font-semibold text-[#1b1733]">{changeLabel(alert)}</p>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Fact label="Previous coverage" value={alert.oldTier == null ? "No tier on file" : `Tier ${alert.oldTier}, ${estMoney(alert.oldMonthlyCost)}/mo`} />
-          <Fact label="Current coverage" value={alert.newTier == null && alert.newMonthlyCost == null ? "Not on the formulary" : `Tier ${alert.newTier ?? "—"}, ${estMoney(alert.newMonthlyCost)}/mo`} />
-          <Fact label="Detected" value={formatTimestamp(alert.detectedAt)} />
-          <Fact label="Formulary versions" value={`${alert.fromVersion} → ${alert.toVersion}`} />
-        </dl>
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2]">
-        <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">PATIENT IMPACT</h2>
-        <p className="mt-3 text-sm leading-6 text-[#3c3658]">{impactSentence(alert)}</p>
-        <p className="mt-3 text-sm text-[#5c5678]">Workflow status on file: {alert.status}.</p>
-      </section>
-
-      <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2]">
-        <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">SUGGESTED ALTERNATIVES</h2>
+        <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">SUGGESTIONS</h2>
+        <p className="mt-2 text-sm text-[#5c5678]">Covered on this plan. You choose.</p>
         {checkError ? (
           <div className="mt-4">
-            <p className="text-sm text-[#9b3b3b]">Unable to load suggested alternatives.</p>
-            <p className="mt-1 text-xs text-[#6d6788]">{checkError}</p>
+            <p className="text-sm text-[#9b3b3b]">Couldn&apos;t load suggestions.</p>
             <button type="button" onClick={() => router.refresh()} className="mt-3 text-sm font-semibold text-[#5c4dff]">
               Retry
             </button>
           </div>
         ) : null}
         {!checkError && alternatives.length === 0 ? (
-          <p className="mt-4 text-sm leading-6 text-[#3c3658]">
-            No covered alternative was returned for this plan and drug. The stored alert also has{" "}
-            {alert.bestAlternativeName ? displayDrugName(alert.bestAlternativeName) : "no suggested switch"}.
-          </p>
+          <p className="mt-4 text-sm text-[#3c3658]">No covered suggestion for this plan.</p>
         ) : null}
         <ul className="mt-4 flex flex-col gap-3">
           {alternatives.map((alternative) => {
             const selected = selection?.rxcui === alternative.rxcui;
-            const savings = alternativeSavingsLabel(alternative);
             return (
               <li key={alternative.rxcui}>
                 <button
                   type="button"
                   aria-pressed={selected}
                   onClick={() => choose(alternative.rxcui)}
-                  className={`w-full rounded-2xl px-4 py-4 text-left ring-1 ${selected ? "bg-[#f3f0ff] ring-[#5c4dff]" : "bg-[#faf9fd] ring-[#e6e1f2] hover:bg-white"}`}
+                  className={`flex w-full items-center justify-between gap-4 rounded-2xl px-4 py-4 text-left ring-1 ${selected ? "bg-[#f3f0ff] ring-[#5c4dff]" : "bg-[#faf9fd] ring-[#e6e1f2] hover:bg-white"}`}
                 >
-                  <span className="block text-base font-semibold text-[#1b1733]">{displayDrugName(alternative.drugName)}</span>
-                  <span className="mt-1 block text-sm text-[#5c5678]">{alternative.drugName}</span>
-                  <span className="mt-2 block text-sm text-[#3c3658]">
-                    {STATUS_STYLE[alternative.status].label}
-                    {alternative.tier != null ? ` · tier ${alternative.tier}` : ""}
-                    {alternative.estMonthlyCost != null ? ` · ${estMoney(alternative.estMonthlyCost)}/mo` : ""}
+                  <span className="text-base font-semibold text-[#1b1733]">{displayDrugName(alternative.drugName)}</span>
+                  <span className="shrink-0 text-sm text-[#3c3658]">
+                    {alternative.estMonthlyCost != null ? `${estMoney(alternative.estMonthlyCost)}/mo` : ""}
+                    {selected ? " · Selected" : ""}
                   </span>
-                  {savings ? <span className="mt-1 block text-sm text-[#1f9d55]">{savings}</span> : (
-                    <span className="mt-1 block text-sm text-[#6d6788]">No savings estimate. The current drug has no covered price to compare.</span>
-                  )}
-                  {alternative.priorAuth || alternative.stepTherapy || alternative.quantityLimit ? (
-                    <span className="mt-1 block text-xs text-[#8a5a12]">
-                      {[alternative.priorAuth ? "Prior auth" : null, alternative.stepTherapy ? "Step therapy" : null, alternative.quantityLimit ? "Quantity limit" : null].filter(Boolean).join(" · ")}
-                    </span>
-                  ) : null}
-                  {selected ? <span className="mt-2 block text-xs font-semibold text-[#5c4dff]">Selected this session. Not saved.</span> : null}
                 </button>
               </li>
             );
           })}
         </ul>
-        {selection ? (
-          <p className="mt-4 text-sm text-[#3c3658]">
-            Selected this session, not saved: {selection.drugName}
-            {selection.estMonthlyCost != null ? ` at ${estMoney(selection.estMonthlyCost)}/mo` : ""}.
-          </p>
-        ) : null}
       </section>
 
       <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2]">
         <h2 className="text-xs font-semibold tracking-[0.14em] text-[#8a84a3]">NOTIFICATION</h2>
         {notice?.ok ? (
-          <div className="mt-4 rounded-2xl bg-[#f1fbf4] px-4 py-4 text-sm text-[#145c32]">
-            <p className="font-semibold">Patient notified</p>
-            <p className="mt-1">SMS sent successfully.</p>
-            <p className="mt-2">Patient: {alert.patientName}</p>
-            <p>Time: {formatTimestamp(notice.at)}</p>
-            <p>Status: {notice.deliveryStatus ?? "Sent"}</p>
-            {notice.messageId ? <p>Message id: {notice.messageId}</p> : null}
-            <p className="mt-2 whitespace-pre-wrap text-[#1b1733]">{notice.message}</p>
-          </div>
+          <p className="mt-3 text-sm font-semibold text-[#145c32]">Patient notified</p>
         ) : notice ? (
-          <div className="mt-4 rounded-2xl bg-[#fff6f6] px-4 py-4 text-sm text-[#6d2430]">
-            <p className="font-semibold">Unable to send notification.</p>
-            <p className="mt-2">Attempted {formatTimestamp(notice.at)} for {alert.patientName}.</p>
-            <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[#7a4a52]">{notice.error}</p>
-          </div>
+          <p className="mt-3 text-sm text-[#9b3b3b]">Couldn&apos;t send. No phone number on file.</p>
         ) : (
-          <p className="mt-3 text-sm text-[#5c5678]">No notification has been sent for this patient.</p>
+          <p className="mt-3 text-sm text-[#5c5678]">Not sent yet.</p>
         )}
         <button
           type="button"
@@ -239,9 +158,6 @@ export function PatientReview({
             <Fact label="Patient" value={alert.patientName} />
             <Fact label="Phone" value="No phone number on file" />
           </dl>
-          <p className="mt-2 text-xs leading-5 text-[#6d6788]">
-            Patient records in this database are an id and a name only. The doctor&apos;s phone is not used here.
-          </p>
           <label className="mt-4 block text-xs font-semibold tracking-[0.12em] text-[#8a84a3]" htmlFor="sms-message">
             MESSAGE
           </label>
@@ -253,10 +169,7 @@ export function PatientReview({
             className="mt-2 w-full rounded-2xl bg-[#f7f5fc] px-4 py-3 text-sm leading-6 text-[#1b1733] ring-1 ring-[#e6e1f2]"
           />
           {sendError ? (
-            <div className="mt-4 rounded-2xl bg-[#fff6f6] px-4 py-3 text-sm text-[#6d2430]">
-              <p className="font-semibold">Unable to send notification.</p>
-              <p className="mt-2 text-xs leading-5">{sendError}</p>
-            </div>
+            <p className="mt-4 text-sm text-[#9b3b3b]">Couldn&apos;t send. No phone number on file.</p>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-3">
             <button

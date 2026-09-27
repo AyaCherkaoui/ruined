@@ -2,13 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { PatientAlert } from "@/lib/contract";
+import type { Alternative, PatientAlert } from "@/lib/contract";
 import { displayDrugName, estMoney } from "@/components/format";
 import { useMedishiftSession, type SessionNotice } from "@/components/medishift-session";
 import {
   alertsToCsv,
-  costLine,
-  coverageHeadline,
   earliestDetectedLabel,
   groupByMedicine,
   matchesFilter,
@@ -16,13 +14,20 @@ import {
   policySentence,
   policyUpdateCount,
   reviewCounts,
-  savingsRows,
   statusLabel,
   initials,
   displayPatientId,
 } from "@/lib/medishift-view";
 
-export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
+export interface DashboardItem {
+  alert: PatientAlert;
+  alternatives: Alternative[];
+  checkError: string | null;
+}
+
+export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
+  const alerts = items.map((item) => item.alert);
+  const byId = new Map(items.map((item) => [item.alert.id, item]));
   const [filter, setFilter] = useState("all");
   const [grouped, setGrouped] = useState(false);
   const session = useMedishiftSession();
@@ -35,7 +40,6 @@ export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
   const policies = policyUpdateCount(visible);
   const detected = earliestDetectedLabel(visible);
   const sentence = policySentence(visible);
-  const savings = savingsRows(visible);
   const sessionSelections = visible.filter((alert) => session.selections[alert.id]).length;
   const groups = grouped ? groupByMedicine(visible) : [{ label: "", alerts: visible }];
 
@@ -71,12 +75,6 @@ export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
             >
               Review patients
             </a>
-            <a
-              href="#savings"
-              className="inline-flex h-12 items-center rounded-full bg-white px-5 text-sm font-semibold text-[#2a2460] hover:bg-white/90"
-            >
-              View savings impact
-            </a>
             <button
               type="button"
               onClick={exportList}
@@ -100,10 +98,6 @@ export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
           />
         </div>
       </section>
-
-      <p className="text-sm leading-6 text-[#5c5678]">
-        Dollar amounts are estimates for a typical 30-day fill. Deductibles and coverage phases are not included.
-      </p>
 
       <section id="patients" className="flex flex-col gap-4 scroll-mt-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -144,6 +138,8 @@ export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
                     <PatientRow
                       key={alert.id}
                       alert={alert}
+                      alternatives={byId.get(alert.id)?.alternatives ?? []}
+                      checkError={byId.get(alert.id)?.checkError ?? null}
                       selectionName={session.selections[alert.id]?.drugName ?? null}
                       notice={session.notices[alert.id] ?? null}
                     />
@@ -152,30 +148,6 @@ export function MedishiftDashboard({ alerts }: { alerts: PatientAlert[] }) {
               </div>
             ))}
           </div>
-        )}
-      </section>
-
-      <section id="savings" className="scroll-mt-6 rounded-[28px] bg-white p-6 shadow-sm ring-1 ring-[#e6e1f2] sm:p-8">
-        <h2 className="text-2xl font-semibold tracking-tight text-[#1b1733]">Savings impact</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5c5678]">
-          Calculated from stored alert prices: the current estimate, or the last covered estimate when the drug was removed, minus the stored alternative price. Only a lower alternative price counts.
-        </p>
-        {savings.total == null ? (
-          <p className="mt-6 text-base text-[#3c3658]">
-            Monthly savings cannot be calculated. No priced covered alternative is stored for {visible.length === 1 ? "this patient" : "these patients"}.
-          </p>
-        ) : (
-          <>
-            <p className="mt-6 text-4xl font-semibold tabular-nums text-[#1b1733]">{estMoney(savings.total)}</p>
-            <p className="text-sm text-[#5c5678]">potential monthly savings on this list</p>
-            <ul className="mt-4 flex flex-col gap-2">
-              {savings.rows.map((row) => (
-                <li key={`${row.patientName}-${row.drug}`} className="text-sm text-[#3c3658]">
-                  {row.patientName}: {row.drug} → {row.alternative}, {estMoney(row.saved)}/mo
-                </li>
-              ))}
-            </ul>
-          </>
         )}
       </section>
     </main>
@@ -228,14 +200,17 @@ function FilterButton({
 
 function PatientRow({
   alert,
+  alternatives,
+  checkError,
   selectionName,
   notice,
 }: {
   alert: PatientAlert;
+  alternatives: Alternative[];
+  checkError: string | null;
   selectionName: string | null;
   notice: SessionNotice | null;
 }) {
-  const alternative = alert.bestAlternativeName ? displayDrugName(alert.bestAlternativeName) : null;
   return (
     <li className="rounded-[28px] bg-white px-4 py-4 shadow-sm ring-1 ring-[#e6e1f2] sm:px-5">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-center">
@@ -252,21 +227,24 @@ function PatientRow({
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#8a84a3]">{coverageHeadline(alert)}</p>
-          <p className="mt-1 text-base font-semibold text-[#1b1733]">{displayDrugName(alert.drugName)}</p>
-          <p className="text-sm text-[#5c5678]">{alert.drugName}</p>
-          <p className="mt-1 text-sm text-[#3c3658]">{costLine(alert)}</p>
+          <p className="text-base font-semibold text-[#1b1733]">{displayDrugName(alert.drugName)}</p>
+          <p className="mt-1 text-sm text-[#3c3658]">Not covered · {alert.planName}</p>
         </div>
 
-        <div className="min-w-0 xl:w-72">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#8a84a3]">SUGGESTED ALTERNATIVES</p>
-          {alternative ? (
-            <p className="mt-2 inline-flex rounded-full bg-[#f4f2fb] px-3 py-1.5 text-sm font-medium text-[#3c3658]">
-              {alternative}
-              {alert.bestAlternativeCost != null ? ` · ${estMoney(alert.bestAlternativeCost)}/mo` : ""}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-[#3c3658]">No covered alternative on file</p>
+        <div className="min-w-0 xl:w-80">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#8a84a3]">SUGGESTIONS</p>
+          {checkError ? <p className="mt-2 text-sm text-[#9b3b3b]">{checkError}</p> : null}
+          {alternatives.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {alternatives.map((alternative) => (
+                <p key={alternative.rxcui} className="rounded-full bg-[#f4f2fb] px-3 py-1.5 text-sm font-medium text-[#3c3658]">
+                  {displayDrugName(alternative.drugName)}
+                  {alternative.estMonthlyCost != null ? ` · ${estMoney(alternative.estMonthlyCost)}/mo` : ""}
+                </p>
+              ))}
+            </div>
+          ) : checkError ? null : (
+            <p className="mt-2 text-sm text-[#3c3658]">No formulary alternative returned</p>
           )}
           <p className="mt-2 text-xs font-medium text-[#6d6788]">{statusLabel(alert.status)}</p>
           {selectionName ? (

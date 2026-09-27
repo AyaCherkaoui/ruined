@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 export interface SessionSelection {
   rxcui: string;
@@ -67,7 +67,12 @@ function subscribe(onStoreChange: () => void) {
 }
 
 export function useMedishiftSession(): SessionState {
-  return useSyncExternalStore(subscribe, read, () => EMPTY);
+  const session = useSyncExternalStore(subscribe, read, () => EMPTY);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
+  return ready ? session : EMPTY;
 }
 
 export function saveSelection(alertId: string, selection: SessionSelection) {

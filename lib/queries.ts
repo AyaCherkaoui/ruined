@@ -20,6 +20,7 @@ interface AlertRow {
   drug_name: string;
   contract_id: string;
   plan_id: string;
+  segment_id: string;
   plan_name: string;
   old_monthly_cost: number | null;
   new_monthly_cost: number | null;
@@ -38,7 +39,7 @@ interface AlertRow {
 const ALERT_SELECT = `
   SELECT a.id, a.change_id, c.change_type, a.patient_id, p.full_name AS patient_name,
          a.prescription_id, c.rxcui, coalesce(d.name, c.rxcui) AS drug_name,
-         a.contract_id, a.plan_id,
+         a.contract_id, a.plan_id, coalesce(pc.segment_id, '000') AS segment_id,
          coalesce(pl.plan_name, a.contract_id || '-' || a.plan_id) AS plan_name,
          a.old_monthly_cost, a.new_monthly_cost,
          a.best_alternative_rxcui, a.best_alternative_cost,
@@ -98,6 +99,7 @@ function toAlert(row: AlertRow): PatientAlert {
     drugName: row.drug_name,
     contractId: row.contract_id,
     planId: row.plan_id,
+    segmentId: row.segment_id,
     planName: row.plan_name,
     oldMonthlyCost: asMoney(row.old_monthly_cost),
     newMonthlyCost: asMoney(row.new_monthly_cost),
