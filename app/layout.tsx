@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MediShift",
+  title: "HeadsUp",
   description: "Formulary change console for reviewing affected patients and covered alternatives.",
 };
 

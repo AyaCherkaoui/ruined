@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const [alerts, totalPatients] = await Promise.all([
     alertsForDoctor(DEMO_DOCTOR_ID),
-    countPatients(),
+    countPatients(undefined, DEMO_DOCTOR_ID),
   ]);
   return <Dashboard alerts={alerts} totalPatients={totalPatients} />;
 }

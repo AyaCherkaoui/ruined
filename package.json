@@ -13,6 +13,8 @@
     "pipeline:eliquis": "tsx scripts/eliquis-pipeline.ts",
     "bootstrap:verify": "tsx scripts/verify-bootstrap.ts",
     "pipeline:e2e": "tsx scripts/e2e.ts",
+    "demo:test": "vitest run lib/pipeline/policy-notification.test.ts lib/pipeline/app-runner.test.ts",
+    "demo:seed": "tsx scripts/seed-demo-panel.ts",
     "demo:prepare": "tsx scripts/prepare-demo.ts",
     "pipeline:daily": "tsx scripts/daily.ts",
     "pipeline:ops": "tsx scripts/aggregate-operations.ts"

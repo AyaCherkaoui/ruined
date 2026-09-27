@@ -4,10 +4,12 @@ export interface SmsResult {
   status: "preview" | "accepted" | "failed" | "unknown";
   body: string;
   error?: string;
+  messageId?: string;
+  deliveryStatus?: string;
 }
 
 export function buildSms(appUrl?: string, isDemo = false): string {
-  const prefix = isDemo ? "Heads Up demo: A simulated coverage alert is ready for review." : "Heads Up: A coverage alert is ready for review.";
+  const prefix = isDemo ? "HeadsUp demo: A simulated coverage alert is ready for review." : "HeadsUp: A coverage alert is ready for review.";
   let link = "[app link]";
   if (appUrl) {
     const url = new URL(appUrl);
@@ -17,7 +19,7 @@ export function buildSms(appUrl?: string, isDemo = false): string {
     // Never embed alert IDs, drug names, recipients, or patient data in a URL.
     link = new URL("/coverage-alerts", url.origin).href;
   }
-  const body = `${prefix} Open Heads Up to review the change and next steps: ${link}`;
+  const body = `${prefix} Open HeadsUp to review the change and next steps: ${link}`;
   if (body.length > 320) throw new Error("The SMS review link is too long.");
   return body;
 }

@@ -60,7 +60,7 @@ export async function sendSms(body: string, env: SmsEnvironment = process.env, r
     if (!data.sid || !["accepted", "queued", "sending", "sent", "delivered"].includes(data.status ?? "")) {
       return { ...base, status: "unknown", error: "Send status is uncertain. Check Twilio before trying again." };
     }
-    return { ...base, status: "accepted" };
+    return { ...base, status: "accepted", messageId: data.sid, deliveryStatus: data.status };
   } catch {
     // Never return/log raw provider errors: they can include credentials or numbers.
     return { ...base, status: "unknown", error: "Send status is uncertain. Check Twilio before trying again." };

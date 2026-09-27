@@ -41,7 +41,7 @@ export function coverageChangeSentence(alert: {
   newMonthlyCost: number | null;
 }): string {
   const drug = displayDrugName(alert.drugName);
-  if (alert.changeType === "removed" || alert.newMonthlyCost == null) {
+  if (alert.changeType === "removed") {
     return `${alert.patientName}'s ${drug} was removed from the formulary. It was ${estMoney(alert.oldMonthlyCost)}/month.`;
   }
   return alertSentence(alert);

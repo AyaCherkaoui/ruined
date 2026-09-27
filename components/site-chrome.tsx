@@ -46,10 +46,10 @@ export function SiteChrome({
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/" className="flex items-center gap-3">
             <span className="flex size-10 items-center justify-center rounded-full bg-[#5c4dff] text-sm font-semibold text-white">
-              M
+              H
             </span>
             <span>
-              <span className="block text-base font-semibold leading-5 text-[#1b1733]">MediShift</span>
+              <span className="block text-base font-semibold leading-5 text-[#1b1733]">HeadsUp</span>
               <span className="block text-xs text-[#6d6788]">Formulary change console</span>
             </span>
           </Link>

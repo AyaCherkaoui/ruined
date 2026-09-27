@@ -29,7 +29,7 @@ async function main() {
     const [row] = await db.query<{ count: number }>("SELECT COUNT(DISTINCT a.patient_id) AS count FROM patient_alerts a JOIN prescriptions p ON p.id = a.prescription_id WHERE p.doctor_id = 'doc-001'");
     count = row.count;
   } finally { await db.close(); }
-  const body = `Demo: ${count} patients were affected by an insurance change. View details: https://example.com/coverage-alerts`;
+  const body = `HeadsUp demo: ${count} patients were affected by an insurance change. View details: https://example.com/coverage-alerts`;
   console.log(JSON.stringify({ body, recipientSuffix: env.DOCTOR_PHONE?.slice(-4), configured: liveSmsConfigured(env) }));
   if (!args.includes("--send")) return;
   if (!liveSmsConfigured(env)) throw new Error("WhatsApp configuration is incomplete.");

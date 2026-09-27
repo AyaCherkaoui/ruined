@@ -21,9 +21,9 @@ async function seed() {
     await db.run(`INSERT INTO ${table} SELECT * REPLACE ('v2-cms' AS data_version) FROM ${table} WHERE data_version='v1'`);
   }
   await db.run("UPDATE formulary SET prior_authorization=true WHERE data_version='v2-cms'");
-  await addDoctor(db, "doc", "Demo Doctor");
+  await addDoctor(db, "doc-001", "Demo Doctor");
   await addPatient(db, "pt", "Demo Patient", TEST_PLAN);
-  await addPrescription(db, "rx", "pt", "doc", "1653204");
+  await addPrescription(db, "rx", "pt", "doc-001", "1653204");
 }
 
 it("rejects unbootstrapped releases before manufacturing changes", async () => {

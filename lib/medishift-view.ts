@@ -131,8 +131,8 @@ function normalizeTimestamp(value: string): string {
 }
 
 export function policySentence(alerts: readonly PatientAlert[]): string {
-  const removed = uniqueNames(alerts.filter((alert) => alert.changeType === "removed" || alert.newMonthlyCost == null));
-  const changed = uniqueNames(alerts.filter((alert) => alert.changeType !== "removed" && alert.newMonthlyCost != null));
+  const removed = uniqueNames(alerts.filter((alert) => alert.changeType === "removed"));
+  const changed = uniqueNames(alerts.filter((alert) => alert.changeType !== "removed"));
   if (alerts.length === 0) return "No formulary changes are in this view.";
   if (removed.length > 0 && changed.length === 0) {
     return `Insurance no longer covers ${joinNames(removed)}. Pick a covered substitute for each patient.`;
@@ -174,7 +174,7 @@ export function firstName(fullName: string): string {
 }
 
 export function coverageHeadline(alert: PatientAlert): string {
-  if (alert.changeType === "removed" || alert.newMonthlyCost == null) return "CURRENT (NOT COVERED)";
+  if (alert.changeType === "removed") return "CURRENT (NOT COVERED)";
   if (alert.changeType === "tier_increase") return "CURRENT (HIGHER TIER)";
   if (alert.changeType === "new_prior_auth" || alert.changeType === "new_step_therapy" || alert.changeType === "new_quantity_limit") {
     return "CURRENT (NEW RESTRICTION)";
@@ -206,7 +206,7 @@ export function changeLabel(alert: PatientAlert): string {
 
 export function impactSentence(alert: PatientAlert): string {
   const drug = displayDrugName(alert.drugName);
-  if (alert.changeType === "removed" || alert.newMonthlyCost == null) {
+  if (alert.changeType === "removed") {
     return `${alert.patientName} is affected because ${drug} was removed from ${alert.planName} between formulary ${alert.fromVersion} and ${alert.toVersion}. The last covered 30-day estimate was ${estMoney(alert.oldMonthlyCost)}. No current covered price is on file.`;
   }
   return `${alert.patientName} is affected because ${drug} on ${alert.planName} changed (${changeLabel(alert).toLowerCase()}). The estimated 30-day cost went from ${estMoney(alert.oldMonthlyCost)} to ${estMoney(alert.newMonthlyCost)}.`;
@@ -216,7 +216,7 @@ export function impactSentence(alert: PatientAlert): string {
 export function coverageSms(alert: PatientAlert, alternativeName: string | null): string {
   const drug = displayDrugName(alert.drugName);
   const change =
-    alert.changeType === "removed" || alert.newMonthlyCost == null
+    alert.changeType === "removed"
       ? `your insurance coverage for ${drug} has changed, and the drug is no longer covered on your plan`
       : `your insurance coverage for ${drug} has changed (${changeLabel(alert).toLowerCase()})`;
   const review = alternativeName
@@ -270,7 +270,7 @@ export function rowImpact(alert: PatientAlert, alternatives: readonly Alternativ
   const drug = displayDrugName(alert.drugName);
   const who = firstName(alert.patientName);
   const lead =
-    alert.changeType === "removed" || alert.newMonthlyCost == null
+    alert.changeType === "removed"
       ? `${who}'s ${drug} is no longer covered under ${alert.planName}.`
       : `${who}'s ${drug} changed on ${alert.planName}.`;
   const last = `Last covered estimate ${estMoney(alert.oldMonthlyCost)}.`;
@@ -601,4 +601,8 @@ export function groupByMedicine(alerts: readonly PatientAlert[]): { label: strin
     groups.set(label, list);
   }
   return [...groups.entries()].map(([label, rows]) => ({ label, alerts: rows }));
+}
+
+export function policyChangeLabel(type: PatientAlert["changeType"]): string {
+  return { removed: "Not covered", tier_increase: "Higher formulary tier", new_prior_auth: "Prior authorization added", new_step_therapy: "Step therapy added", new_quantity_limit: "Quantity limit added" }[type];
 }

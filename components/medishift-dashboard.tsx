@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { PolicyDemo } from "@/components/policy-demo";
 import { useMemo, useState } from "react";
 import type { Alternative, PatientAlert } from "@/lib/contract";
 import { displayDrugName, estMoney } from "@/components/format";
 import { useMedishiftSession, type SessionNotice } from "@/components/medishift-session";
 import {
   alertsToCsv,
+  policyChangeLabel,
+  medicineLabel,
   earliestDetectedLabel,
   groupByMedicine,
   matchesFilter,
@@ -29,19 +32,22 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
   const alerts = items.map((item) => item.alert);
   const byId = new Map(items.map((item) => [item.alert.id, item]));
   const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [limit, setLimit] = useState(20);
   const [grouped, setGrouped] = useState(false);
   const session = useMedishiftSession();
   const filters = useMemo(() => policyFilters(alerts), [alerts]);
   const visible = useMemo(
-    () => alerts.filter((alert) => matchesFilter(alert, filter)),
-    [alerts, filter],
+    () => alerts.filter((alert) => matchesFilter(alert, filter) && (status === "all" || alert.status === status) && `${alert.patientName} ${alert.patientId} ${alert.planName} ${alert.drugName}`.toLowerCase().includes(search.toLowerCase())),
+    [alerts, filter, search, status],
   );
   const counts = reviewCounts(visible);
   const policies = policyUpdateCount(visible);
   const detected = earliestDetectedLabel(visible);
   const sentence = policySentence(visible);
   const sessionSelections = visible.filter((alert) => alert.selectedAlternative).length;
-  const groups = grouped ? groupByMedicine(visible) : [{ label: "", alerts: visible }];
+  const groups = grouped ? groupByMedicine(visible.slice(0, limit)) : [{ label: "", alerts: visible.slice(0, limit) }];
 
   function exportList() {
     const csv = alertsToCsv(visible);
@@ -49,13 +55,14 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "medishift-affected-patients.csv";
+    link.download = "headsup-affected-patients.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
+      <PolicyDemo />
       <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,1fr)]">
         <div className="flex flex-col justify-between rounded-[28px] bg-[#5c4dff] px-6 py-7 text-white shadow-sm sm:px-8 sm:py-8">
           <div>
@@ -103,11 +110,11 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <h2 className="text-2xl font-semibold tracking-tight text-[#1b1733]">Patients to review</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>
+            <FilterButton active={filter === "all"} onClick={() => { setFilter("all"); setLimit(20); }}>
               All
             </FilterButton>
             {filters.map((item) => (
-              <FilterButton key={item.id} active={filter === item.id} onClick={() => setFilter(item.id)}>
+              <FilterButton key={item.id} active={filter === item.id} onClick={() => { setFilter(item.id); setLimit(20); }}>
                 {item.label}
               </FilterButton>
             ))}
@@ -122,6 +129,11 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-3">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">Search patients, plans, or medicines<input value={search} onChange={event => { setSearch(event.target.value); setLimit(20); }} className="h-11 rounded-xl border bg-white px-3" /></label>
+          <label className="flex flex-col gap-1 text-sm">Review status<select value={status} onChange={event => { setStatus(event.target.value); setLimit(20); }} className="h-11 rounded-xl border bg-white px-3"><option value="all">All statuses</option><option value="new">Pending</option><option value="seen">Reviewed</option><option value="switched">Switched</option><option value="dismissed">Dismissed</option></select></label>
+        </div>
+        <p role="status" className="text-sm text-[#5c5678]">Showing {Math.min(limit, visible.length)} of {visible.length} prescription alerts</p>
         {visible.length === 0 ? (
           <div className="rounded-3xl bg-white px-6 py-10 text-[#3c3658] shadow-sm ring-1 ring-[#e6e1f2]">
             {alerts.length === 0
@@ -149,6 +161,7 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
             ))}
           </div>
         )}
+        {visible.length > limit ? <button onClick={() => setLimit(value => value + 20)} className="min-h-11 self-center rounded-full bg-white px-6 ring-1 ring-[#e6e1f2]">Show 20 more</button> : null}
       </section>
     </main>
   );
@@ -227,8 +240,8 @@ function PatientRow({
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold text-[#1b1733]">{displayDrugName(alert.drugName)}</p>
-          <p className="mt-1 text-sm text-[#3c3658]">Not covered · {alert.planName}</p>
+          <p className="text-base font-semibold text-[#1b1733]">{medicineLabel(alert)}</p>
+          <p className="mt-1 text-sm text-[#3c3658]">{policyChangeLabel(alert.changeType)} · {alert.planName}</p>
         </div>
 
         <div className="min-w-0 xl:w-80">
@@ -251,7 +264,7 @@ function PatientRow({
             <p className="mt-1 text-xs text-[#5c4dff]">Saved selection: {selectionName}</p>
           ) : null}
           {notice?.ok ? (
-            <p className="mt-1 text-xs text-[#1f9d55]">Patient notified</p>
+            <p className="mt-1 text-xs text-[#1f9d55]">Notification accepted</p>
           ) : notice ? (
             <p className="mt-1 text-xs text-[#9b3b3b]">Notification not sent</p>
           ) : null}

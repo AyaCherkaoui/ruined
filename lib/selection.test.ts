@@ -17,9 +17,9 @@ beforeEach(async () => {
   await addTier(db, 2, 1, 10);
   for (const table of ["plans", "formulary", "beneficiary_cost", "pricing"]) await db.run(`INSERT INTO ${table} SELECT * REPLACE ('v2-cms' AS data_version) FROM ${table} WHERE data_version='v1'`);
   await db.run("UPDATE formulary SET prior_authorization=true WHERE data_version='v2-cms' AND rxcui='1653204'");
-  await addDoctor(db, "doc", "Demo Doctor");
+  await addDoctor(db, "doc-001", "Demo Doctor");
   await addPatient(db, "pt", "Demo Patient", TEST_PLAN);
-  await addPrescription(db, "rx", "pt", "doc", "1653204");
+  await addPrescription(db, "rx", "pt", "doc-001", "1653204");
   id = (await runAppPipeline(db)).alertIds[0];
 });
 afterEach(async () => { vi.restoreAllMocks(); await db.close(); });

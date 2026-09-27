@@ -45,7 +45,7 @@ export function AlertInbox({ alerts }: { alerts: PatientAlert[] }) {
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="flex flex-col gap-4">
         <h1 className="max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-neutral-950 sm:text-5xl">
-          How many patients have I financially ruined?
+          HeadsUp patient alerts
         </h1>
         <p className="text-lg text-neutral-800">
           <span className="text-4xl font-semibold tabular-nums text-red-700">{patients}</span>

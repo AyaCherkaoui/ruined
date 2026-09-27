@@ -58,7 +58,7 @@ describe("generic SMS content and transport", () => {
   it("posts authenticated form data and reports acceptance without exposing recipients", async () => {
     const request = vi.fn().mockResolvedValue(Response.json({ sid: "SMtest", status: "queued" }));
     const result = await sendSms("generic", env, request);
-    expect(result).toEqual({ mode: "live", status: "accepted", body: "generic" });
+    expect(result).toMatchObject({ mode: "live", status: "accepted", body: "generic", messageId: "SMtest", deliveryStatus: "queued" });
     const [url, init] = request.mock.calls[0];
     expect(url).toContain(`/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`);
     expect(init.headers.Authorization).toMatch(/^Basic /);

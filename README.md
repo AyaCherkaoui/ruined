@@ -1,10 +1,18 @@
-# How many patients have I financially ruined?
+# HeadsUp
 
 Medicare Part D coverage and cost estimates for doctors. Coverage decisions come from CMS formulary data and deterministic code — never from an LLM.
 
 ## Demo (current)
 
-One drug: **NovoLog FlexPen** (insulin aspart, RXCUI `1653204`). Five synthetic Georgia patients. Three lost coverage between CMS quarterly `v1` and monthly `v2-cms` on Kaiser `H1170-002`; two still covered on Humana Basic Rx.
+**136 synthetic patients**, **Wellcare + CareSource**, and **Farxiga + exenatide** (two strengths each). Four real CMS plan variants and all four review states. Real coverage evidence stays in the existing July/September 2026 CMS snapshots; only patient identities and workflow states are synthetic. Existing formulary alternatives remain available.
+
+```sh
+npm run demo:seed     # stop the app first; seeds and detects changes, repeatable
+npm run demo:test     # offline policy-change + WhatsApp integration tests
+npm run dev
+```
+
+On `/`, use **Replay policy changes & preview WhatsApp** to run detection and patient matching. The live send uses the configured demo recipient, a server-generated summary, durable duplicate protection, and a delivery-status check. See [patient demo and WhatsApp runbook](docs/patient-demo.md).
 
 ## Run locally
 
@@ -43,8 +51,8 @@ dev` is open. Stop the server before any script that *writes* the database (seed
 | POST | `/api/alerts/:id/dismiss` | `PatientAlert` |
 | POST | `/api/alerts/:id/selection` | Save `{ rxcui }` from current alternatives and mark the patient alert reviewed |
 | POST | `/api/demo/reset` | `{ reset: true }` (reopens coverage alerts and resets patient alerts) |
-| POST | `/api/pipeline/run` | Runs the staged NovoLog comparison and matching; stable change/alert IDs and counts |
-| GET | `/api/changes` | Persisted NovoLog `CoverageChange[]` for `v1` to `v2-cms` |
+| POST | `/api/pipeline/run` | Runs comparison and matching for the demo doctor's prescribed drugs; stable change/alert IDs and counts |
+| GET | `/api/changes` | Persisted matched `CoverageChange[]` for `v1` to `v2-cms` |
 | GET | `/api/alerts` | `CoverageAlert[]` |
 | GET | `/api/alerts/:id` | `CoverageAlert`, 404 if unknown |
 | POST | `/api/alerts/:id/resolve` | `CoverageAlert` (idempotent), 404 if unknown |

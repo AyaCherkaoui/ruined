@@ -170,9 +170,9 @@ export async function patientById(id: string, db?: Db): Promise<Patient | null> 
   return { id: row.id, fullName: row.full_name };
 }
 
-export async function countPatients(db?: Db): Promise<number> {
+export async function countPatients(db?: Db, doctorId?: string): Promise<number> {
   const conn = await dbOf(db);
-  const rows = await conn.query<{ n: number }>("SELECT count(*) AS n FROM patients");
+  const rows = await conn.query<{ n: number }>("SELECT count(*) AS n FROM patients p WHERE $1 IS NULL OR EXISTS (SELECT 1 FROM prescriptions rx WHERE rx.patient_id=p.id AND rx.doctor_id=$1)", [doctorId ?? null]);
   return Number(rows[0]?.n ?? 0);
 }
 
@@ -241,7 +241,7 @@ export async function searchPatients(q: string, db?: Db): Promise<PatientSummary
                          AND pl.contract_id = pc.contract_id
                          AND pl.plan_id = pc.plan_id
                          AND pl.segment_id = pc.segment_id
-      WHERE $1 = '' OR p.full_name ILIKE '%' || $1 || '%'
+      WHERE $1 = '' OR p.full_name ILIKE '%' || $1 || '%' OR p.id ILIKE '%' || $1 || '%'
       ORDER BY p.full_name
       LIMIT 8`,
     [query, CURRENT_DATA_VERSION],

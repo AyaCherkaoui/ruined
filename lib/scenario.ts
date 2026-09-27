@@ -1,4 +1,4 @@
-/** The one doctor in the seeded NovoLog scenario. */
+/** The doctor in the synthetic Wellcare/CareSource demo panel. */
 export const DEMO_DOCTOR_ID = "doc-001";
 
 /** Quarterly CMS SPUF already loaded by scripts/load_spuf.py. */

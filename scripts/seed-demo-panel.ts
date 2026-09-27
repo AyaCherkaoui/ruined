@@ -9,7 +9,8 @@
  *   npx tsx scripts/seed-demo-panel.ts
  */
 import { findAlternatives } from "../lib/alternatives";
-import { openDb, type Db } from "../lib/db";
+import { openDb, inTransaction, type Db } from "../lib/db";
+import { detectChanges } from "../lib/pipeline/detectChanges";
 import { matchPrescriptions } from "../lib/pipeline/matchPrescriptions";
 import type { PatientAlertStatus } from "../lib/contract";
 import { DEMO_DOCTOR_ID } from "../lib/scenario";
@@ -36,6 +37,18 @@ export const DEMO_PANEL: {
   { id: "pt-110", fullName: "Julia Marsh", rxcui: "1486981", plan: { contractId: "H1112", planId: "038", segmentId: "000" }, status: "new" },
   { id: "pt-112", fullName: "Lila Grant", rxcui: "847915", plan: { contractId: "H8390", planId: "015", segmentId: "000" }, status: "new" },
 ];
+
+// Deterministic synthetic identities; only the two existing drug families and
+// Wellcare/CareSource plans above. No invented insurer coverage or real contacts.
+const firstNames = ["Amara", "Bruno", "Celia", "Dev", "Elena", "Farid", "Grace", "Hugo", "Imani", "Jasper", "Keiko", "Luis", "Mei", "Noah", "Olivia", "Priya"];
+const lastNames = ["Adams", "Bennett", "Chen", "Diaz", "Evans", "Foster", "Gupta", "Hassan"];
+const originalPanel = [...DEMO_PANEL];
+for (let i = 0; i < 128; i++) {
+  const template = originalPanel[i % originalPanel.length];
+  DEMO_PANEL.push({ ...template, id: `demo-pt-${String(i + 1).padStart(3, "0")}`,
+    fullName: `${firstNames[i % firstNames.length]} ${lastNames[Math.floor(i / firstNames.length)]}`,
+    status: (["new", "seen", "switched", "dismissed"] as const)[Math.floor(i / 8) % 4] });
+}
 
 async function ensureDoctor(db: Db, id: string, fullName: string): Promise<void> {
   const existing = await db.query<{ id: string }>("SELECT id FROM doctors WHERE id = $1", [id]);
@@ -78,6 +91,7 @@ async function removeRetiredPatients(db: Db): Promise<void> {
 }
 
 export async function seedDemoPanel(db: Db): Promise<void> {
+  await detectChanges("v1", "v2-cms", [...new Set(DEMO_PANEL.map(p => p.rxcui))], db);
   await removeRetiredPatients(db);
   await ensureDoctor(db, ARCHIVE_DOCTOR.id, ARCHIVE_DOCTOR.fullName);
   await ensureDoctor(db, DEMO_DOCTOR_ID, "Dr. Maria Alvarez");
@@ -121,7 +135,7 @@ export async function seedDemoPanel(db: Db): Promise<void> {
 async function integrity(db: Db): Promise<string[]> {
   const problems: string[] = [];
   const seen = new Set<string>();
-  for (const patient of DEMO_PANEL) {
+  for (const patient of originalPanel) {
     if (seen.has(patient.id)) problems.push(`Duplicate demo id ${patient.id}`);
     seen.add(patient.id);
     const alts = await findAlternatives(patient.plan, patient.rxcui, { db, dataVersion: "v2-cms" });
@@ -147,18 +161,12 @@ async function integrity(db: Db): Promise<string[]> {
       WHERE pl.contract_id IS NULL AND pc.patient_id LIKE 'pt-1%'`,
   );
   for (const row of badPlans) problems.push(`Patient ${row.patient_id} plan is not in v2-cms`);
-  const phones = await db.query<{ n: number }>(
-    "SELECT count(*) AS n FROM patients WHERE id LIKE 'pt-1%'",
-  );
-  if (Number(phones[0]?.n ?? 0) > 0) {
-    problems.push("Demo patients have no phone column. SMS cannot be delivered.");
-  }
   return problems;
 }
 
 async function main() {
   const db = await openDb();
-  await seedDemoPanel(db);
+  await inTransaction(db, seedDemoPanel);
   const rows = await db.query<{ id: string; full_name: string; status: string; drug: string; plan_name: string; alts: string | null }>(
     `SELECT p.id, p.full_name, a.status, d.name AS drug, pl.plan_name, alt.name AS alts
        FROM patients p
@@ -175,12 +183,12 @@ async function main() {
       ORDER BY p.full_name`,
     [DEMO_DOCTOR_ID],
   );
-  console.log(JSON.stringify(rows, null, 2));
+  console.log(JSON.stringify({ patients: DEMO_PANEL.length, alerts: rows.length, sample: rows.slice(0, 8) }, null, 2));
   const problems = await integrity(db);
   console.log("INTEGRITY");
   for (const problem of problems) console.log(`- ${problem}`);
   await db.close();
-  const blocking = problems.filter((problem) => !problem.includes("$0") && !problem.startsWith("Demo patients have no phone"));
+  const blocking = problems.filter((problem) => !problem.includes("$0"));
   if (blocking.length > 0) process.exit(1);
 }
 

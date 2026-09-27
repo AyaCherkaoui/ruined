@@ -41,7 +41,7 @@ export function Dashboard({ alerts, totalPatients }: { alerts: PatientAlert[]; t
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-8 sm:px-6 sm:py-12">
         <header className="flex flex-col gap-8">
           <h1 className="max-w-[14ch] text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-neutral-950 sm:text-6xl">
-            How many patients have I financially ruined?
+            HeadsUp coverage impact
           </h1>
           <div className="grid gap-4 sm:grid-cols-2">
             <Card className="border-l-4 border-l-red-600">
@@ -119,7 +119,8 @@ export function Dashboard({ alerts, totalPatients }: { alerts: PatientAlert[]; t
                 <p className="text-base text-neutral-700">Nothing to compare.</p>
               ) : (
                 <>
-                  <CostChart points={points} />
+                  <p className="mb-3 text-sm text-neutral-600">Showing the first {Math.min(20, points.length)} of {points.length} prescription alerts. Review the full list on the patient dashboard.</p>
+                  <CostChart points={points.slice(0, 20)} />
                   <div className="sr-only">
                     <table>
                       <caption>Estimated monthly cost before the change versus alternative cost by patient</caption>
