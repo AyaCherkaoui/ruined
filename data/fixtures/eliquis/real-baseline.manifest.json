@@ -1,0 +1,10 @@
+{
+    "source":  "https://data.cms.gov/sites/default/files/2026-09/903ba816-d276-4c17-9b5a-0224bbd4e949/2026_20260916.zip",
+    "releaseId":  "v2-cms",
+    "releaseHash":  "51d0d4177f00458ef420da1491f91f2e4f0a17dc11c253232a9bcc06572d21f2",
+    "snapshotHash":  "31128ceb8ac70426311730544392eb96c810dc0d93a612d37e8446efb19bd3dd",
+    "capturedAt":  "2026-09-27T00:00:00.000Z",
+    "provenance":  "replay",
+    "redaction":  "Public formulary fields only; no credentials, local paths, patients, or prescriber identifiers.",
+    "hashEncoding":  "UTF-8 with LF newlines"
+}

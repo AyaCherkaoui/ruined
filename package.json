@@ -8,7 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "warm-drugs": "tsx scripts/warm-drug-cache.ts"
+    "warm-drugs": "tsx scripts/warm-drug-cache.ts",
+    "pipeline:eliquis": "tsx scripts/eliquis-pipeline.ts",
+    "bootstrap:verify": "tsx scripts/verify-bootstrap.ts",
+    "pipeline:e2e": "tsx scripts/e2e.ts",
+    "pipeline:daily": "tsx scripts/daily.ts",
+    "pipeline:ops": "tsx scripts/aggregate-operations.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

@@ -44,3 +44,10 @@ dev` is open. Stop the server before any script that *writes* the database (seed
 | POST | `/api/demo/reset` | `{ reset: true }` |
 
 Shared types live in `lib/contract.ts`. Schema: `data/schema.sql` / `DATA_MODEL.md`. Build notes: `PROGRESS.md`.
+
+Reproducible CMS bootstrap and the isolated Eliquis aggregate pipeline (milestones
+01-08): [source and ingestion guide](docs/pipeline-milestones.md) and
+[offline demo, daily runner, cross-check, and console outbox](docs/pipeline-operations.md).
+
+Run the offline real-baseline proof with `npm run pipeline:e2e` (no network or
+preexisting database required).

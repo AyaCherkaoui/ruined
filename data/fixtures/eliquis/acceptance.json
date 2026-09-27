@@ -1,0 +1,11 @@
+[
+  {
+    "npi": "0000000000",
+    "plan": {
+      "contractId": "HDEMO",
+      "planId": "001",
+      "segmentId": "000",
+      "sourcePlanId": "cms-synthetic-1"
+    }
+  }
+]
