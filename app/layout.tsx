@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteChrome } from "@/components/site-chrome";
 import type { Doctor } from "@/lib/contract";
+import { getCurrentDoctorProfile } from "@/lib/doctorProfile";
 import { doctorById } from "@/lib/queries";
 import { DEMO_DOCTOR_ID } from "@/lib/scenario";
 import { supabaseConfigured } from "@/lib/supabase/server";
@@ -26,10 +27,21 @@ export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   let doctor: Doctor | null = null;
+  // The signed-in doctor's own profile when there is one; otherwise the demo doctor, as before.
   try {
-    doctor = await doctorById(DEMO_DOCTOR_ID);
+    const profile = await getCurrentDoctorProfile();
+    if (profile?.name) {
+      doctor = { id: profile.npi ? `NPI ${profile.npi}` : "", fullName: profile.name, phone: profile.phone };
+    }
   } catch {
     doctor = null;
+  }
+  if (!doctor) {
+    try {
+      doctor = await doctorById(DEMO_DOCTOR_ID);
+    } catch {
+      doctor = null;
+    }
   }
 
   return (

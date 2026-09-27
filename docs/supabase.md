@@ -89,3 +89,19 @@ Signed-in users cannot write `coverage_alerts`, so inserts come from:
   `createClient(url, secretKey).from("coverage_alerts").upsert(inputs.map(changeInputToRow), { onConflict: "id", ignoreDuplicates: true })`.
 
 Once real rows exist, remove the demo ones: `delete from public.coverage_alerts where is_demo;`
+
+## Doctor profiles
+
+`doctor_profiles`: one row per Supabase Auth user (`name`, `npi`, `specialty`, `organization`,
+`phone`, timestamps). No passwords (Supabase Auth keeps those), no patient data.
+
+- Setup: run `supabase/migrations/20260927020000_doctor_profiles.sql` after the two above.
+- A signed-in doctor can read and update only their own row (name, npi, specialty,
+  organization, phone). Doctors cannot create or delete profiles: add them in the SQL Editor.
+- Test account: run `supabase/seed-test-doctor-profile.sql` to give `doctor@test.com` a fake
+  profile. It finds the user by email; no UUID is hardcoded.
+- Server code: `getCurrentDoctorProfile()` in `lib/doctorProfile.ts` returns the signed-in
+  doctor's profile, `null` when there is none (or Supabase is off), and a 401 when signed out.
+- The header shows the signed-in doctor's profile name and NPI, and falls back to the demo doctor
+  when there is no profile.
+
