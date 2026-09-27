@@ -1,5 +1,18 @@
 # Supabase: database and sign-in
 
+## HeadsUp project
+
+Use project reference `aubtnsvksswxpghmamuu`:
+`https://aubtnsvksswxpghmamuu.supabase.co`.
+Set `NEXT_PUBLIC_SUPABASE_URL` to that URL and obtain its publishable key from
+the same project's settings for `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+Keep the key in environment configuration. Set these in both `.env.local` and
+the hosting environment, then rebuild; local configuration does not update deployment settings.
+
+The connected project's tables, constraints, row-level policies, and profile-update trigger
+were verified against all three repository SQL migrations. Its migration-history list is
+empty, so schema compatibility was checked directly rather than inferred from migration IDs.
+
 Supabase is optional. With `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 in `.env.local`:
 

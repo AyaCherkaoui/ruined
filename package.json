@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "env:check": "tsx scripts/check-env.ts",
     "whatsapp:test": "tsx scripts/whatsapp-test.ts",
     "dev": "next dev",
     "build": "next build",

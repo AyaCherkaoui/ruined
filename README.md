@@ -16,6 +16,9 @@ On `/`, use **Replay policy changes & preview WhatsApp** to run detection and pa
 
 ## Run locally
 
+For local/hosted settings, see [environment and Vultr deployment](docs/environment.md).
+Run `npm run env:check` to validate settings without printing credentials.
+
 ```bash
 # Needs data/scenario.duckdb (gitignored). Copy from the api worktree or rebuild:
 #   python loaders + npx tsx scripts/seed-scenario.ts
