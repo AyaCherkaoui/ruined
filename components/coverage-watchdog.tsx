@@ -7,6 +7,7 @@ import type { CoverageAlert, CoverageAlertChangeType } from "@/lib/contract";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SmsNotification } from "@/components/sms-notification";
 
 const CHANGE_BADGE: Record<CoverageAlertChangeType, { label: string; className: string }> = {
   prior_auth_added: { label: "New prior auth", className: "border-amber-300 bg-amber-50 text-amber-950" },
@@ -147,6 +148,8 @@ export function CoverageWatchdog({ alerts }: { alerts: CoverageAlert[] }) {
                     ) : null}
 
                     <p className="text-xs text-neutral-500">Source: {alert.source}</p>
+
+                    <SmsNotification alertId={alert.id} />
 
                     <Button
                       type="button"
