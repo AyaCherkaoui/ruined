@@ -110,3 +110,78 @@ export interface PatientAlert {
   status: PatientAlertStatus;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------------
+// Coverage Watchdog (Eliquis + Humana). Change-level alerts for a doctor: "this plan
+// changed this rule for this drug". No patient identities -- the practice finds its own
+// affected patients in its own records. PatientAlert above is the legacy NovoLog model.
+// ---------------------------------------------------------------------------------
+
+export type CoverageAlertChangeType =
+  | "prior_auth_added"
+  | "prior_auth_removed"
+  | "step_therapy_added"
+  | "step_therapy_removed"
+  | "quantity_limit_added"
+  | "quantity_limit_removed"
+  | "tier_increase"
+  | "tier_decrease"
+  | "dropped"
+  | "restored";
+
+export type CoverageAlertStatus = "open" | "resolved";
+
+export type CoverageAlertActionType =
+  | "find_affected_patients"
+  | "submit_prior_auth"
+  | "request_exception"
+  | "cost_support";
+
+/** One next step for the doctor, shown on the action page. `steps` are in order. */
+export interface CoverageAlertAction {
+  type: CoverageAlertActionType;
+  title: string;
+  steps: string[];
+  url: string | null;
+}
+
+/** Estimated from public CMS prescriber data. Never names or identifies patients. */
+export interface EstimatedPatientRange {
+  min: number;
+  max: number;
+  basis: string;
+}
+
+export interface CoverageAlert {
+  id: string;
+  insurer: string;
+  /** CMS contract-plan id, e.g. "S5884-135". */
+  planId: string;
+  planName: string;
+  /** Display name, e.g. "Eliquis (apixaban) 5 mg tablet". */
+  drug: string;
+  rxcui: string | null;
+  changeType: CoverageAlertChangeType;
+  /** Headline: one sentence describing the change, ready to display. */
+  summary: string;
+  /** Human-readable rule before the change. Null when there was no prior rule (e.g. "restored"). */
+  oldValue: string | null;
+  /** Human-readable rule after the change. Null when the drug is gone (e.g. "dropped"). */
+  newValue: string | null;
+  /** YYYY-MM-DD. Null when the source gives no effective date. */
+  effectiveDate: string | null;
+  /** ISO timestamp of when our pipeline detected the change. */
+  detectedAt: string;
+  /** Null until CMS prescriber matching exists. */
+  estimatedPatientRange: EstimatedPatientRange | null;
+  status: CoverageAlertStatus;
+  /** ISO timestamp. Null while open. */
+  resolvedAt: string | null;
+  /** True for simulated demo data. The UI can label it. */
+  isDemo: boolean;
+  /** Where the data came from, human-readable. */
+  source: string;
+  sourceUrl: string | null;
+  /** Next steps, in display order. Empty when the change helps patients (e.g. "prior_auth_removed"). */
+  actions: CoverageAlertAction[];
+}

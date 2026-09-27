@@ -41,6 +41,24 @@ dev` is open. Stop the server before any script that *writes* the database (seed
 | GET | `/api/patients/search?q=` | `PatientSummary[]` |
 | GET | `/api/drugs/search?patientId=&q=` | `DrugOption[]` |
 | POST | `/api/alerts/:id/dismiss` | `PatientAlert` |
-| POST | `/api/demo/reset` | `{ reset: true }` |
+| POST | `/api/demo/reset` | `{ reset: true }` (reopens coverage alerts and resets patient alerts) |
+| GET | `/api/alerts` | `CoverageAlert[]` |
+| GET | `/api/alerts/:id` | `CoverageAlert`, 404 if unknown |
+| POST | `/api/alerts/:id/resolve` | `CoverageAlert` (idempotent), 404 if unknown |
 
 Shared types live in `lib/contract.ts`. Schema: `data/schema.sql` / `DATA_MODEL.md`. Build notes: `PROGRESS.md`.
+
+## Coverage Watchdog alerts (Eliquis + Humana)
+
+Change-level alerts: "this Humana plan changed this rule for Eliquis." No patient data. Type:
+`CoverageAlert` in `lib/contract.ts`. Errors are `{ error }` with 400 / 404 / 500.
+
+The data is **demo data** for now (`lib/demoCoverageAlerts.ts`, every alert has `isDemo: true`).
+Resolved state is kept in server memory, so a restart reopens every alert.
+
+**Swapping in the real pipeline** (`lib/coverageAlerts.ts`): a data source only returns
+`CoverageChangeInput[]` (id, insurer, planId, planName, drug, rxcui, changeType, oldValue,
+newValue, effectiveDate, detectedAt, source, sourceUrl). The service translates pipeline change
+names (`new_prior_auth` -> `prior_auth_added`, `removed` -> `dropped`), writes the summary and
+action steps, and tracks open/resolved. Add the loader to `coverageAlertStore()` and set
+`COVERAGE_ALERTS_SOURCE`. Routes and frontend do not change.
