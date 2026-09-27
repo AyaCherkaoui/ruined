@@ -33,7 +33,39 @@ Twilio trial accounts require verified recipients. Provider acceptance does not
 prove handset delivery; the UI deliberately reports acceptance, not delivery.
 See [Twilio's Message resource documentation](https://www.twilio.com/docs/messaging/api/message-resource).
 
-## API
+## WhatsApp Sandbox
+
+The same transport also supports Twilio's WhatsApp Sandbox. In `.env.local`,
+set `MESSAGING_CHANNEL=whatsapp` and `TWILIO_WHATSAPP_FROM=whatsapp:+<sandbox number>`.
+Use the Account SID and Auth Token belonging to that sandbox, and set `DOCTOR_PHONE`
+to the recipient's WhatsApp number with country code. `TWILIO_FROM_NUMBER` is only
+used for SMS. The existing `SMS_MODE=live` and send access key still control app sends.
+
+In Twilio Console, open **Try out WhatsApp** (or the legacy Console's
+**Messaging > Try it out > Send a WhatsApp message**), activate the sandbox and
+send its displayed `join ...` message from the recipient's WhatsApp. Joining opens
+a 24-hour window for custom text; send another WhatsApp message to reopen it.
+Sandbox membership expires after three days and must then be renewed.
+See [Twilio's sandbox instructions](https://www.twilio.com/docs/whatsapp/sandbox).
+
+For the custom demo message containing the distinct affected-patient count from
+the local demo doctor's alerts and an example.com sample link:
+
+```sh
+npm run whatsapp:test
+npm run whatsapp:test -- --send
+npm run whatsapp:test -- --status
+```
+
+The first command previews without network access. `--send` explicitly enables a
+single live WhatsApp attempt for this command only, regardless of `SMS_MODE`.
+It saves an ignored local receipt; accepted or uncertain attempts block another
+send until the receipt is deliberately removed after checking delivery.
+`--status` checks the saved message without sending another. Queued/accepted is
+not proof of delivery. No inbound webhook or public server is needed for this test.
+Never commit `.env.local` or paste the Auth Token into chat.
+
+## API behavior
 
 - `GET /api/notify`: returns `{ mode: "preview" | "live" }`, without secrets.
 - `POST /api/notify`: JSON `{ "changeId": "<existing alert id>", "preview": true }`

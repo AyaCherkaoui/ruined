@@ -13,6 +13,31 @@ const env: SmsEnvironment = {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("generic SMS content and transport", () => {
+  it("sends WhatsApp addresses with either prefixed or plain phone numbers", async () => {
+    for (const prefix of ["", "whatsapp:"]) {
+      const request = vi.fn().mockResolvedValue(Response.json({ sid: "SMtest", status: "queued" }));
+      const result = await sendSms("3 patients affected. https://example.com", {
+        ...env, MESSAGING_CHANNEL: "whatsapp", TWILIO_FROM_NUMBER: undefined,
+        TWILIO_WHATSAPP_FROM: `${prefix}+15005550006`, DOCTOR_PHONE: `${prefix}+15005550001`,
+      }, request);
+      expect(result.status).toBe("accepted");
+      const form = request.mock.calls[0][1].body;
+      expect(form.get("From")).toBe("whatsapp:+15005550006");
+      expect(form.get("To")).toBe("whatsapp:+15005550001");
+    }
+  });
+  it("never falls back to SMS if the WhatsApp sender is missing", async () => {
+    const request = vi.fn();
+    expect((await sendSms("test", { ...env, MESSAGING_CHANNEL: "whatsapp" }, request)).status).toBe("preview");
+    expect(request).not.toHaveBeenCalled();
+  });
+  it("explains sandbox enrollment errors without exposing provider details", async () => {
+    const request = vi.fn().mockResolvedValue(Response.json({ code: 63015, message: "private number" }, { status: 400 }));
+    const result = await sendSms("test", env, request);
+    expect(result.error).toContain("join your WhatsApp Sandbox");
+    expect(JSON.stringify(result)).not.toContain("private number");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
   it("uses a generic review link without query data or alert details", () => {
     const body = buildSms("https://example.test/private?patient=secret", true);
     expect(body).toContain("demo");
