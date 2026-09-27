@@ -1,0 +1,235 @@
+{
+  "contractVersion": "eliquis-aggregate-v1",
+  "observations": [
+    {
+      "id": "obs-plan-a-5mg-baseline",
+      "source": "humana_fhir",
+      "sourceReleaseId": "humana-demo-2026-09-25",
+      "sourceRunId": "run-demo-baseline",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "ndc": null,
+      "covered": true,
+      "tier": 3,
+      "priorAuthorization": false,
+      "stepTherapy": null,
+      "quantityLimit": {
+        "applies": true,
+        "amount": 60,
+        "days": 30
+      },
+      "capturedAt": "2026-09-25T08:00:00.000Z",
+      "effectiveAt": "2026-09-25T00:00:00.000Z",
+      "rawArtifactHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "provenance": "replay"
+    },
+    {
+      "id": "obs-plan-a-5mg-adverse",
+      "source": "humana_fhir",
+      "sourceReleaseId": "humana-demo-2026-09-26-simulated",
+      "sourceRunId": "run-demo-adverse",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "ndc": null,
+      "covered": true,
+      "tier": 3,
+      "priorAuthorization": true,
+      "stepTherapy": null,
+      "quantityLimit": {
+        "applies": true,
+        "amount": 60,
+        "days": 30
+      },
+      "capturedAt": "2026-09-26T08:00:00.000Z",
+      "effectiveAt": "2026-09-26T00:00:00.000Z",
+      "rawArtifactHash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "provenance": "simulated"
+    },
+    {
+      "id": "obs-plan-a-5mg-restored",
+      "source": "humana_fhir",
+      "sourceReleaseId": "humana-demo-2026-09-27-simulated",
+      "sourceRunId": "run-demo-restored",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "ndc": null,
+      "covered": true,
+      "tier": 3,
+      "priorAuthorization": false,
+      "stepTherapy": null,
+      "quantityLimit": {
+        "applies": true,
+        "amount": 60,
+        "days": 30
+      },
+      "capturedAt": "2026-09-27T08:00:00.000Z",
+      "effectiveAt": "2026-09-27T00:00:00.000Z",
+      "rawArtifactHash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "provenance": "simulated"
+    },
+    {
+      "id": "obs-plan-b-2-5mg-baseline",
+      "source": "humana_fhir",
+      "sourceReleaseId": "humana-demo-2026-09-25",
+      "sourceRunId": "run-demo-baseline",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "002",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-b"
+      },
+      "rxcui": "1364441",
+      "ndc": null,
+      "covered": true,
+      "tier": 3,
+      "priorAuthorization": false,
+      "stepTherapy": false,
+      "quantityLimit": {
+        "applies": true,
+        "amount": 60,
+        "days": 30
+      },
+      "capturedAt": "2026-09-25T08:00:00.000Z",
+      "effectiveAt": null,
+      "rawArtifactHash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "provenance": "replay"
+    },
+    {
+      "id": "obs-plan-b-2-5mg-control",
+      "source": "humana_fhir",
+      "sourceReleaseId": "humana-demo-2026-09-26",
+      "sourceRunId": "run-demo-control",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "002",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-b"
+      },
+      "rxcui": "1364441",
+      "ndc": null,
+      "covered": true,
+      "tier": 3,
+      "priorAuthorization": false,
+      "stepTherapy": false,
+      "quantityLimit": {
+        "applies": true,
+        "amount": 60,
+        "days": 30
+      },
+      "capturedAt": "2026-09-26T08:00:00.000Z",
+      "effectiveAt": null,
+      "rawArtifactHash": "5555555555555555555555555555555555555555555555555555555555555555",
+      "provenance": "replay"
+    }
+  ],
+  "changes": [
+    {
+      "id": "change-plan-a-pa-added",
+      "oldObservationId": "obs-plan-a-5mg-baseline",
+      "newObservationId": "obs-plan-a-5mg-adverse",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "direction": "worsened",
+      "changeType": "prior_authorization_added",
+      "detectedAt": "2026-09-26T08:00:01.000Z",
+      "effectiveAt": "2026-09-26T00:00:00.000Z",
+      "resolvesChangeId": null,
+      "resolvedByChangeId": "change-plan-a-pa-removed",
+      "provenance": "simulated"
+    },
+    {
+      "id": "change-plan-a-pa-removed",
+      "oldObservationId": "obs-plan-a-5mg-adverse",
+      "newObservationId": "obs-plan-a-5mg-restored",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "direction": "improved",
+      "changeType": "prior_authorization_removed",
+      "detectedAt": "2026-09-27T08:00:01.000Z",
+      "effectiveAt": "2026-09-27T00:00:00.000Z",
+      "resolvesChangeId": "change-plan-a-pa-added",
+      "resolvedByChangeId": null,
+      "provenance": "simulated"
+    }
+  ],
+  "doctorImpacts": [
+    {
+      "id": "impact-exact-demo",
+      "npi": "0000000000",
+      "changeId": "change-plan-a-pa-added",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "estimate": {
+        "metric": "total_claims",
+        "value": 184,
+        "lowerBound": null,
+        "upperBound": null,
+        "method": "cms_reported_value"
+      },
+      "sourceYear": 2024,
+      "suppressed": false,
+      "qualityFlags": [
+        "demo_plan_acceptance",
+        "simulated_change"
+      ],
+      "planAcceptanceSource": "demo_signup"
+    },
+    {
+      "id": "impact-suppressed-demo",
+      "npi": "0000000001",
+      "changeId": "change-plan-a-pa-added",
+      "plan": {
+        "contractId": "HDEMO",
+        "planId": "001",
+        "segmentId": "000",
+        "sourcePlanId": "humana-demo-plan-a"
+      },
+      "rxcui": "1364447",
+      "estimate": {
+        "metric": "unique_beneficiaries",
+        "value": null,
+        "lowerBound": null,
+        "upperBound": null,
+        "method": "cms_suppressed"
+      },
+      "sourceYear": 2024,
+      "suppressed": true,
+      "qualityFlags": [
+        "suppressed_source_value",
+        "demo_plan_acceptance",
+        "simulated_change"
+      ],
+      "planAcceptanceSource": "demo_signup"
+    }
+  ]
+}
