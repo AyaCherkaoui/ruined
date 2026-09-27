@@ -10,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SmsNotification } from "@/components/sms-notification";
 
 const CHANGE_BADGE: Record<CoverageAlertChangeType, { label: string; className: string }> = {
+  quantity_limit_tightened: { label: "Quantity limit tightened", className: "border-amber-200 bg-amber-50 text-amber-800" },
+  quantity_limit_relaxed: { label: "Quantity limit relaxed", className: "border-emerald-200 bg-emerald-50 text-emerald-800" },
   prior_auth_added: { label: "New prior auth", className: "border-amber-300 bg-amber-50 text-amber-950" },
   prior_auth_removed: { label: "Prior auth removed", className: "border-emerald-200 bg-emerald-50 text-emerald-800" },
   step_therapy_added: { label: "New step therapy", className: "border-amber-300 bg-amber-50 text-amber-950" },
@@ -23,6 +25,7 @@ const CHANGE_BADGE: Record<CoverageAlertChangeType, { label: string; className: 
 };
 
 const HELPS_PATIENTS: ReadonlySet<CoverageAlertChangeType> = new Set([
+  "quantity_limit_relaxed",
   "prior_auth_removed",
   "step_therapy_removed",
   "quantity_limit_removed",

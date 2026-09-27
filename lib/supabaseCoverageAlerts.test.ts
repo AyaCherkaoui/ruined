@@ -17,6 +17,11 @@ vi.mock("./supabase/server", () => ({
 import { GET as listRoute } from "../app/api/alerts/route";
 import { GET as getRoute } from "../app/api/alerts/[id]/route";
 import { POST as resolveRoute } from "../app/api/alerts/[id]/resolve/route";
+import { POST as resetRoute } from "../app/api/demo/reset/route";
+import { POST as pipelineRoute } from "../app/api/pipeline/run/route";
+import { POST as selectionRoute } from "../app/api/alerts/[id]/selection/route";
+import { GET as changesRoute } from "../app/api/changes/route";
+import * as queries from "./queries";
 import { requireUser, safeNextPath } from "./auth";
 import { resetAlerts } from "./coverageAlerts";
 import { DEMO_COVERAGE_CHANGES } from "./demoCoverageAlerts";
@@ -86,6 +91,7 @@ beforeEach(() => {
   db = seededDb();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   delete process.env.COVERAGE_ALERTS_SOURCE;
 });
 
@@ -126,6 +132,35 @@ describe("coverage alert routes with Supabase", () => {
     process.env.COVERAGE_ALERTS_SOURCE = "demo";
     auth.client = fakeSupabase(db, null);
     expect((await listRoute()).status).toBe(401);
+  });
+
+  it("also protects aggregate mode and the restored demo API endpoints", async () => {
+    process.env.COVERAGE_ALERTS_SOURCE = "aggregate";
+    auth.client = fakeSupabase(db, null);
+    expect((await listRoute()).status).toBe(401);
+    expect((await resetRoute()).status).toBe(401);
+    expect((await pipelineRoute()).status).toBe(401);
+    expect((await changesRoute()).status).toBe(401);
+    expect((await selectionRoute(post(), ctx(PA_ID))).status).toBe(401);
+  });
+
+  it("the reset endpoint uses the signed-in doctor's Supabase store", async () => {
+    auth.client = fakeSupabase(db, "doc-a");
+    db.coverage_alert_resolutions.push(
+      { user_id: "doc-a", alert_id: PA_ID, resolved_at: "2026-09-27T00:00:00Z" },
+      { user_id: "doc-b", alert_id: PA_ID, resolved_at: "2026-09-27T00:00:00Z" },
+    );
+    vi.spyOn(queries, "resetAlertStatuses").mockResolvedValue({ reset: true });
+    expect((await resetRoute()).status).toBe(200);
+    expect(db.coverage_alert_resolutions).toHaveLength(1);
+    expect(db.coverage_alert_resolutions[0].user_id).toBe("doc-b");
+  });
+
+  it("a source reversal stays resolved after the doctor's manual reset", async () => {
+    auth.client = fakeSupabase(db, "doc-a");
+    db.coverage_alerts.find((row) => row.id === PA_ID)!.source_resolved_at = "2026-09-29T00:00:00Z";
+    await resetAlerts();
+    expect(await (await getRoute(post(), ctx(PA_ID))).json()).toMatchObject({ status: "resolved", resolvedAt: "2026-09-29T00:00:00.000Z" });
   });
 
   it("lists alerts from the database with the same CoverageAlert shape", async () => {
@@ -197,8 +232,11 @@ describe("row mapping (Person 3's insert path)", () => {
     expect(changeInputToRow({ ...DEMO_COVERAGE_CHANGES[0], changeType: "coverage_removed" }).change_type).toBe("dropped");
   });
 
-  it("rejects change types the API cannot show", () => {
-    expect(() => changeInputToRow({ ...DEMO_COVERAGE_CHANGES[0], changeType: "quantity_limit_tightened" })).toThrow(/Unknown coverage change type/);
+  it("preserves numeric quantity limits and source reversals", () => {
+    const input = { ...DEMO_COVERAGE_CHANGES[0], changeType: "quantity_limit_tightened" as const, sourceResolvedAt: "2026-09-29T00:00:00.000Z" };
+    const row = changeInputToRow(input);
+    expect(row).toMatchObject({ change_type: "quantity_limit_tightened", source_resolved_at: input.sourceResolvedAt });
+    expect(rowToChangeInput(row)).toMatchObject(input);
   });
 
   it("the SQL migration seeds exactly the demo alerts", () => {

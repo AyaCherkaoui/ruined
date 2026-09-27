@@ -1,7 +1,7 @@
 import { findAlternatives } from "./alternatives";
 import type { ChangeType, CheckResponse, Doctor, DrugOption, Patient, PatientAlert, PatientAlertStatus, PatientSummary } from "./contract";
 import { checkCoverage, type PlanKey } from "./coverage";
-import { getDb, type Db } from "./db";
+import { getDb, inTransaction, type Db } from "./db";
 import { normalizeDrug } from "./drugs";
 import { ApiError } from "./http";
 import { CURRENT_DATA_VERSION } from "./scenario";
@@ -169,14 +169,47 @@ export async function alertsForDoctor(doctorId: string, db?: Db): Promise<Patien
   const conn = await dbOf(db);
   const sql = `${ALERT_SELECT} WHERE rx.doctor_id = $2 ORDER BY p.full_name, a.id`;
   const rows = await conn.query<AlertRow>(sql, [CURRENT_DATA_VERSION, doctorId]);
-  return rows.map(toAlert);
+  return withDecisions(rows.map(toAlert), conn);
 }
 
 export async function alertById(id: string, db?: Db): Promise<PatientAlert | null> {
   const conn = await dbOf(db);
   const sql = `${ALERT_SELECT} WHERE a.id = $2`;
   const rows = await conn.query<AlertRow>(sql, [CURRENT_DATA_VERSION, id]);
-  return rows[0] ? toAlert(rows[0]) : null;
+  return rows[0] ? (await withDecisions([toAlert(rows[0])], conn))[0] : null;
+}
+
+async function hasDecisions(db: Db): Promise<boolean> {
+  return (await db.query("SELECT 1 FROM information_schema.tables WHERE table_schema='main' AND table_name='patient_alert_decisions'")).length > 0;
+}
+
+async function withDecisions(alerts: PatientAlert[], db: Db): Promise<PatientAlert[]> {
+  if (!alerts.length || !await hasDecisions(db)) return alerts;
+  const rows = await db.query<{ alert_id: string; rxcui: string; drug_name: string; monthly_cost: number | null; saved_at: unknown }>(
+    `SELECT * FROM patient_alert_decisions WHERE alert_id IN (${alerts.map((_, i) => `$${i + 1}`).join(",")})`, alerts.map((a) => a.id));
+  const decisions = new Map(rows.map((r) => [r.alert_id, { rxcui: r.rxcui, drugName: r.drug_name, estMonthlyCost: asMoney(r.monthly_cost), savedAt: asIso(r.saved_at) }]));
+  return alerts.map((alert) => ({ ...alert, selectedAlternative: decisions.get(alert.id) ?? null }));
+}
+
+export async function selectAlternative(id: string, rxcui: string, db?: Db): Promise<PatientAlert> {
+  const database = await dbOf(db);
+  return inTransaction(database, async (conn) => {
+    const alert = await alertById(id, conn);
+    if (!alert) throw new ApiError(404, `Alert ${id} not found`);
+    const alternatives = await findAlternatives({ contractId: alert.contractId, planId: alert.planId, segmentId: alert.segmentId }, alert.rxcui,
+      { db: conn, dataVersion: CURRENT_DATA_VERSION });
+    const choice = alternatives.find((a) => a.rxcui === rxcui);
+    if (!choice) throw new ApiError(422, "Choose an alternative currently offered for this patient's plan.");
+    // Also supports a development server whose shared handle predates this table.
+    await conn.run(`CREATE TABLE IF NOT EXISTS patient_alert_decisions
+      (alert_id VARCHAR PRIMARY KEY, rxcui VARCHAR NOT NULL, drug_name VARCHAR NOT NULL, monthly_cost DOUBLE PRECISION, saved_at TIMESTAMP NOT NULL)`);
+    await conn.run(`INSERT INTO patient_alert_decisions VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP)
+      ON CONFLICT (alert_id) DO UPDATE SET rxcui=excluded.rxcui, drug_name=excluded.drug_name,
+      monthly_cost=excluded.monthly_cost, saved_at=CASE WHEN patient_alert_decisions.rxcui=excluded.rxcui
+        THEN patient_alert_decisions.saved_at ELSE excluded.saved_at END`, [id, choice.rxcui, choice.drugName, choice.estMonthlyCost]);
+    await conn.run("UPDATE patient_alerts SET status='seen' WHERE id=$1", [id]);
+    return (await alertById(id, conn))!;
+  });
 }
 
 export async function searchPatients(q: string, db?: Db): Promise<PatientSummary[]> {
@@ -291,6 +324,9 @@ export async function dismissAlert(id: string, db?: Db): Promise<PatientAlert> {
 
 export async function resetAlertStatuses(db?: Db): Promise<{ reset: true }> {
   const conn = await dbOf(db);
-  await conn.run("UPDATE patient_alerts SET status = 'new'");
+  await inTransaction(conn, async (tx) => {
+    if (await hasDecisions(tx)) await tx.run("DELETE FROM patient_alert_decisions");
+    await tx.run("UPDATE patient_alerts SET status = 'new'");
+  });
   return { reset: true };
 }

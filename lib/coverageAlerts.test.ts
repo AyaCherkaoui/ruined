@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import * as queries from "./queries";
 import { GET as listRoute } from "../app/api/alerts/route";
 import { GET as getRoute } from "../app/api/alerts/[id]/route";
 import { POST as resolveRoute } from "../app/api/alerts/[id]/resolve/route";
@@ -252,7 +253,7 @@ describe("API routes", () => {
     try {
       const res = await listRoute();
       expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ error: 'Unknown COVERAGE_ALERTS_SOURCE "bogus". Supported: demo, supabase' });
+      expect(await res.json()).toEqual({ error: 'Unknown COVERAGE_ALERTS_SOURCE "bogus". Supported: demo, aggregate, supabase' });
     } finally {
       delete process.env.COVERAGE_ALERTS_SOURCE;
       g.__coverageAlertStore = saved;
@@ -275,5 +276,14 @@ describe("API routes", () => {
     expect(alert).toMatchObject({ status: "open", resolvedAt: null });
     const legacy = await db.query<{ status: string }>("SELECT status FROM patient_alerts WHERE id = 'legacy-1'");
     expect(legacy[0].status).toBe("new");
+  });
+
+  it("preserves resolved coverage alerts when the legacy reset fails", async () => {
+    await resolveRoute(post(), ctx(PA_ID));
+    const reset = vi.spyOn(queries, "resetAlertStatuses").mockRejectedValue(new ApiError(503, "Demo database unavailable"));
+    try {
+      expect((await demoResetRoute()).status).toBe(503);
+      expect(await (await getRoute(new Request("http://localhost/"), ctx(PA_ID))).json()).toMatchObject({ status: "resolved" });
+    } finally { reset.mockRestore(); }
   });
 });

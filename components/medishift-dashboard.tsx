@@ -40,7 +40,7 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
   const policies = policyUpdateCount(visible);
   const detected = earliestDetectedLabel(visible);
   const sentence = policySentence(visible);
-  const sessionSelections = visible.filter((alert) => session.selections[alert.id]).length;
+  const sessionSelections = visible.filter((alert) => alert.selectedAlternative).length;
   const groups = grouped ? groupByMedicine(visible) : [{ label: "", alerts: visible }];
 
   function exportList() {
@@ -94,7 +94,7 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
             label="Switched"
             value={counts.switched}
             tone="switched"
-            note={sessionSelections > 0 ? `${sessionSelections} selected this session, not saved` : undefined}
+            note={sessionSelections > 0 ? `${sessionSelections} saved selections` : undefined}
           />
         </div>
       </section>
@@ -140,7 +140,7 @@ export function MedishiftDashboard({ items }: { items: DashboardItem[] }) {
                       alert={alert}
                       alternatives={byId.get(alert.id)?.alternatives ?? []}
                       checkError={byId.get(alert.id)?.checkError ?? null}
-                      selectionName={session.selections[alert.id]?.drugName ?? null}
+                      selectionName={alert.selectedAlternative?.drugName ?? null}
                       notice={session.notices[alert.id] ?? null}
                     />
                   ))}
@@ -248,7 +248,7 @@ function PatientRow({
           )}
           <p className="mt-2 text-xs font-medium text-[#6d6788]">{statusLabel(alert.status)}</p>
           {selectionName ? (
-            <p className="mt-1 text-xs text-[#5c4dff]">Selected this session, not saved: {selectionName}</p>
+            <p className="mt-1 text-xs text-[#5c4dff]">Saved selection: {selectionName}</p>
           ) : null}
           {notice?.ok ? (
             <p className="mt-1 text-xs text-[#1f9d55]">Patient notified</p>

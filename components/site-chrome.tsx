@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { resetDemo } from "@/app/_lib/api";
 import { logout } from "@/app/login/actions";
+import { clearMedishiftSession } from "@/components/medishift-session";
 import type { Doctor } from "@/lib/contract";
 import { initials } from "@/lib/medishift-view";
 
@@ -29,6 +30,7 @@ export function SiteChrome({
     setResetError(null);
     try {
       await resetDemo();
+      clearMedishiftSession();
       router.refresh();
       router.push("/");
     } catch (error: unknown) {

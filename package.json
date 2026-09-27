@@ -12,6 +12,7 @@
     "pipeline:eliquis": "tsx scripts/eliquis-pipeline.ts",
     "bootstrap:verify": "tsx scripts/verify-bootstrap.ts",
     "pipeline:e2e": "tsx scripts/e2e.ts",
+    "demo:prepare": "tsx scripts/prepare-demo.ts",
     "pipeline:daily": "tsx scripts/daily.ts",
     "pipeline:ops": "tsx scripts/aggregate-operations.ts"
   },

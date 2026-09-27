@@ -188,3 +188,13 @@ CREATE TABLE IF NOT EXISTS patient_alerts (
   status                 VARCHAR NOT NULL,
   created_at             TIMESTAMP NOT NULL
 );
+
+-- Saved review choice, separate from the pipeline's ranked recommendation.
+-- Recording a decision does not issue or change a prescription.
+CREATE TABLE IF NOT EXISTS patient_alert_decisions (
+  alert_id VARCHAR PRIMARY KEY,
+  rxcui VARCHAR NOT NULL,
+  drug_name VARCHAR NOT NULL,
+  monthly_cost DOUBLE PRECISION,
+  saved_at TIMESTAMP NOT NULL
+);

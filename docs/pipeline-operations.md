@@ -1,5 +1,9 @@
 # Eliquis aggregate operations (milestones 05–08)
 
+Update: the [demo runbook](demo-runbook.md) describes the subsequently added published
+payload adapter for the existing `/api/alerts` API. The original milestones below
+remain isolated commands; `demo:prepare` now publishes their proof for app consumption.
+
 These commands run the isolated aggregate pipeline. The API contract remains a
 proposed handoff: no API route, UI, patient record, or workflow state is added.
 All commands run from the repository root. Install dependencies with `npm install`.

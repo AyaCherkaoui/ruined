@@ -25,6 +25,7 @@ export interface CoverageAlertRow {
   estimated_patients_max: number | null;
   estimated_patients_basis: string | null;
   is_demo: boolean;
+  source_resolved_at?: string | null;
 }
 
 interface ResolutionRow {
@@ -55,6 +56,7 @@ export function rowToChangeInput(row: CoverageAlertRow): CoverageChangeInput {
       ? { min: row.estimated_patients_min!, max: row.estimated_patients_max!, basis: row.estimated_patients_basis! }
       : null,
     isDemo: row.is_demo,
+    ...(row.source_resolved_at ? { sourceResolvedAt: iso(row.source_resolved_at) } : {}),
   };
 }
 
@@ -83,6 +85,7 @@ export function changeInputToRow(input: CoverageChangeInput): CoverageAlertRow {
     estimated_patients_max: range?.max ?? null,
     estimated_patients_basis: range?.basis ?? null,
     is_demo: input.isDemo ?? false,
+    ...(input.sourceResolvedAt ? { source_resolved_at: iso(input.sourceResolvedAt) } : {}),
   };
 }
 

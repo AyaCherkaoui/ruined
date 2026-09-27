@@ -11,6 +11,7 @@ import { ApiError } from "./http";
 import type { CoverageChangeFactType } from "./pipeline/aggregate-contract";
 import { supabaseConfigured } from "./supabase/server";
 import { createSupabaseCoverageAlertStore } from "./supabaseCoverageAlerts";
+import { loadAggregateCoverageChanges } from "./pipeline/coverage-alert-source";
 
 // Coverage Watchdog alerts: data source -> this service -> /api/alerts -> frontend.
 //
@@ -52,6 +53,8 @@ export interface CoverageChangeInput {
   estimatedPatientRange?: EstimatedPatientRange | null;
   /** True only for simulated data. Omit for real data. */
   isDemo?: boolean;
+  /** Authoritative source reversal; manual demo reset must not undo it. */
+  sourceResolvedAt?: string | null;
 }
 
 export type LoadCoverageChanges = () => Promise<CoverageChangeInput[]>;
@@ -67,6 +70,8 @@ const CHANGE_TYPES: readonly CoverageAlertChangeType[] = [
   "step_therapy_removed",
   "quantity_limit_added",
   "quantity_limit_removed",
+  "quantity_limit_tightened",
+  "quantity_limit_relaxed",
   "tier_increase",
   "tier_decrease",
   "dropped",
@@ -75,8 +80,8 @@ const CHANGE_TYPES: readonly CoverageAlertChangeType[] = [
 
 /**
  * Pipeline names -> API names: lib/pipeline/detectChanges (ChangeType) and the Eliquis
- * aggregate contract (CoverageChangeFactType). quantity_limit_tightened / _relaxed have no API
- * equivalent yet, so they are rejected rather than mislabeled.
+ * aggregate contract (CoverageChangeFactType). Numeric quantity-limit changes use their
+ * own API names rather than being mislabeled as added/removed restrictions.
  */
 const PIPELINE_CHANGE_TYPES: Partial<Record<ChangeType | CoverageChangeFactType, CoverageAlertChangeType>> = {
   removed: "dropped",
@@ -108,6 +113,8 @@ function summaryFor(type: CoverageAlertChangeType, plan: string, drug: string): 
     case "step_therapy_removed": return `${plan} no longer requires step therapy for ${drug}.`;
     case "quantity_limit_added": return `${plan} now limits the quantity covered for ${drug}.`;
     case "quantity_limit_removed": return `${plan} removed its quantity limit for ${drug}.`;
+    case "quantity_limit_tightened": return `${plan} tightened its quantity limit for ${drug}.`;
+    case "quantity_limit_relaxed": return `${plan} relaxed its quantity limit for ${drug}.`;
     case "tier_increase": return `${plan} moved ${drug} to a higher cost-sharing tier, so patients will likely pay more.`;
     case "tier_decrease": return `${plan} moved ${drug} to a lower cost-sharing tier.`;
     case "dropped": return `${plan} no longer covers ${drug}.`;
@@ -168,6 +175,7 @@ function actionsFor(type: CoverageAlertChangeType, c: CoverageChangeInput): Cove
         ]),
       ];
     case "quantity_limit_added":
+    case "quantity_limit_tightened":
       return [
         findPatients,
         exception("Check doses against the new quantity limit", [
@@ -200,6 +208,7 @@ function actionsFor(type: CoverageAlertChangeType, c: CoverageChangeInput): Cove
 
 export function buildCoverageAlert(input: CoverageChangeInput, resolvedAt: string | null): CoverageAlert {
   const changeType = normalizeChangeType(input.changeType);
+  resolvedAt = input.sourceResolvedAt ?? resolvedAt;
   return {
     id: input.id,
     insurer: input.insurer,
@@ -253,7 +262,7 @@ export function createCoverageAlertStore(load: LoadCoverageChanges, now: () => D
     return rows;
   }
 
-  const build = (c: CoverageChangeInput) => buildCoverageAlert(c, resolvedAt.get(c.id) ?? null);
+  const build = (c: CoverageChangeInput) => buildCoverageAlert(c, c.sourceResolvedAt ?? resolvedAt.get(c.id) ?? null);
   const find = async (id: string) => (await changes()).find((c) => c.id === id);
 
   return {
@@ -277,7 +286,7 @@ export function createCoverageAlertStore(load: LoadCoverageChanges, now: () => D
 }
 
 // The in-memory demo store: one per server process (survives dev-server HMR, like getDb in lib/db.ts).
-const g = globalThis as unknown as { __coverageAlertStore?: CoverageAlertStore };
+const g = globalThis as unknown as { __coverageAlertStore?: CoverageAlertStore; __aggregateCoverageAlertStore?: CoverageAlertStore };
 
 export function coverageAlertStore(): CoverageAlertStore {
   return (g.__coverageAlertStore ??= createCoverageAlertStore(loadDemoCoverageChanges));
@@ -286,17 +295,18 @@ export function coverageAlertStore(): CoverageAlertStore {
 /**
  * The store for the current request. Checks the session first: when Supabase is configured,
  * nobody signed out gets past this (401), whichever store is used.
- * COVERAGE_ALERTS_SOURCE: "supabase" (default when Supabase is configured) or "demo".
+ * COVERAGE_ALERTS_SOURCE: "supabase" (default when configured), "demo", or "aggregate".
  */
 export async function requestCoverageAlertStore(): Promise<CoverageAlertStore> {
   const session = await requireUser();
   const kind = process.env.COVERAGE_ALERTS_SOURCE || (supabaseConfigured() ? "supabase" : "demo");
   if (kind === "demo") return coverageAlertStore();
+  if (kind === "aggregate") return (g.__aggregateCoverageAlertStore ??= createCoverageAlertStore(loadAggregateCoverageChanges));
   if (kind === "supabase") {
     if (!session) throw new ApiError(500, "COVERAGE_ALERTS_SOURCE=supabase needs the Supabase URL and publishable key in .env.local");
     return createSupabaseCoverageAlertStore(session);
   }
-  throw new ApiError(500, `Unknown COVERAGE_ALERTS_SOURCE "${kind}". Supported: demo, supabase`);
+  throw new ApiError(500, `Unknown COVERAGE_ALERTS_SOURCE "${kind}". Supported: demo, aggregate, supabase`);
 }
 
 // ---------------------------------------------------------------------------------

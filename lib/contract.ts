@@ -89,6 +89,7 @@ export type PatientAlertStatus = "new" | "seen" | "switched" | "dismissed";
 // drug/change details a doctor needs to act (see DATA_MODEL.md). Only id + fullName
 // ever identify the patient.
 export interface PatientAlert {
+  selectedAlternative?: { rxcui: string; drugName: string; estMonthlyCost: number | null; savedAt: string } | null;
   id: string;
   changeId: string;
   changeType: ChangeType;
@@ -132,6 +133,8 @@ export type CoverageAlertChangeType =
   | "step_therapy_removed"
   | "quantity_limit_added"
   | "quantity_limit_removed"
+  | "quantity_limit_tightened"
+  | "quantity_limit_relaxed"
   | "tier_increase"
   | "tier_decrease"
   | "dropped"

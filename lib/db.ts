@@ -12,6 +12,8 @@ export interface Db {
   query<T = Record<string, unknown>>(sql: string, params?: SqlValue[]): Promise<T[]>;
   run(sql: string, params?: SqlValue[]): Promise<void>;
   close(): Promise<void>;
+  /** Reserve the connection for the entire callback, including rollback on failure. */
+  transaction?<T>(work: (tx: Db) => Promise<T>): Promise<T>;
 }
 
 export interface OpenDbOptions {
@@ -93,11 +95,37 @@ class DuckDb implements Db {
     });
   }
 
+  transaction<T>(work: (tx: Db) => Promise<T>): Promise<T> {
+    return this.enqueue(async () => {
+      // This private view has its own queue. Public queries stay behind the outer
+      // reservation, so another request cannot accidentally join this transaction.
+      const tx = new DuckDb(this.instance, this.conn);
+      tx.close = async () => { throw new Error("Cannot close a transaction view"); };
+      tx.transaction = async () => { throw new Error("Nested transactions are not supported"); };
+      await this.conn.run("BEGIN TRANSACTION");
+      try {
+        const result = await work(tx);
+        await tx.chain;
+        await this.conn.run("COMMIT");
+        return result;
+      } catch (error) {
+        await tx.chain;
+        await this.conn.run("ROLLBACK");
+        throw error;
+      }
+    });
+  }
+
   async close(): Promise<void> {
     await this.chain;
     this.conn.closeSync();
     this.instance.closeSync();
   }
+}
+
+export function inTransaction<T>(db: Db, work: (tx: Db) => Promise<T>): Promise<T> {
+  if (!db.transaction) throw new Error("This database adapter does not support isolated transactions");
+  return db.transaction(work);
 }
 
 export async function openDb(opts: OpenDbOptions = {}): Promise<Db> {

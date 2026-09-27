@@ -1,4 +1,4 @@
-import { resetAlerts } from "../../../../lib/coverageAlerts";
+import { requestCoverageAlertStore } from "../../../../lib/coverageAlerts";
 import { errorResponse } from "../../../../lib/http";
 import { resetAlertStatuses } from "../../../../lib/queries";
 
@@ -6,10 +6,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
-    // Coverage Watchdog alerts first: they don't need the database, so they reopen even if
-    // the legacy NovoLog reset below fails.
-    await resetAlerts();
-    return Response.json(await resetAlertStatuses());
+    const store = await requestCoverageAlertStore();
+    // Validate the selected source before changing either workflow. Reset its state only
+    // after the legacy database update succeeds, so DB failures preserve review state.
+    await store.list();
+    const result = await resetAlertStatuses();
+    await store.reset();
+    return Response.json(result);
   } catch (err) {
     return errorResponse(err);
   }

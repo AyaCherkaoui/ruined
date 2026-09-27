@@ -41,6 +41,12 @@ export async function dismissAlert(id: string): Promise<PatientAlert> {
   return getJson<PatientAlert>(`/api/alerts/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
 }
 
+export async function selectAlternative(id: string, rxcui: string): Promise<PatientAlert> {
+  return getJson<PatientAlert>(`/api/alerts/${encodeURIComponent(id)}/selection`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rxcui }),
+  });
+}
+
 export interface NotifyResult {
   sent: true;
   patientId: string;

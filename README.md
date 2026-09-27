@@ -41,7 +41,10 @@ dev` is open. Stop the server before any script that *writes* the database (seed
 | GET | `/api/patients/search?q=` | `PatientSummary[]` |
 | GET | `/api/drugs/search?patientId=&q=` | `DrugOption[]` |
 | POST | `/api/alerts/:id/dismiss` | `PatientAlert` |
+| POST | `/api/alerts/:id/selection` | Save `{ rxcui }` from current alternatives and mark the patient alert reviewed |
 | POST | `/api/demo/reset` | `{ reset: true }` (reopens coverage alerts and resets patient alerts) |
+| POST | `/api/pipeline/run` | Runs the staged NovoLog comparison and matching; stable change/alert IDs and counts |
+| GET | `/api/changes` | Persisted NovoLog `CoverageChange[]` for `v1` to `v2-cms` |
 | GET | `/api/alerts` | `CoverageAlert[]` |
 | GET | `/api/alerts/:id` | `CoverageAlert`, 404 if unknown |
 | POST | `/api/alerts/:id/resolve` | `CoverageAlert` (idempotent), 404 if unknown |
@@ -53,15 +56,19 @@ Shared types live in `lib/contract.ts`. Schema: `data/schema.sql` / `DATA_MODEL.
 Change-level alerts: "this Humana plan changed this rule for Eliquis." No patient data. Type:
 `CoverageAlert` in `lib/contract.ts`. Errors are `{ error }` with 400 / 404 / 500.
 
-The data is **demo data** for now (`lib/demoCoverageAlerts.ts`, every alert has `isDemo: true`).
-Resolved state is kept in server memory, so a restart reopens every alert.
+With Supabase configured, the default alert source is Supabase with signed-in user
+resolution state; see [setup and migrations](docs/supabase.md). Without Supabase,
+the default is **demo data** (`lib/demoCoverageAlerts.ts`, every alert has
+`isDemo: true`). Set `COVERAGE_ALERTS_SOURCE=aggregate` to read the actual aggregate
+pipeline's published payload. [Demo runbook](docs/demo-runbook.md) covers preparation,
+source selection, repeatable runs, and production smoke checks.
+Manual review state is kept in server memory for `demo`/`aggregate`, and per user in
+Supabase for `supabase`. Source reversals remain resolved even after reset or restart.
 
-**Swapping in the real pipeline** (`lib/coverageAlerts.ts`): a data source only returns
-`CoverageChangeInput[]` (id, insurer, planId, planName, drug, rxcui, changeType, oldValue,
-newValue, effectiveDate, detectedAt, source, sourceUrl). The service translates pipeline change
-names (`new_prior_auth` -> `prior_auth_added`, `removed` -> `dropped`), writes the summary and
-action steps, and tracks open/resolved. Add the loader to `coverageAlertStore()` and set
-`COVERAGE_ALERTS_SOURCE`. Routes and frontend do not change.
+The aggregate adapter validates observation references and field changes, preserves
+simulation/replay labels and unknown effective dates, and translates pipeline facts into
+the existing alert API. Annual claims are never converted into affected-patient counts.
+Missing or invalid published data returns 503 instead of substituting fixture alerts.
 
 ## Aggregate pipeline
 

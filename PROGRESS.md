@@ -1,5 +1,49 @@
 # PROGRESS
 
+## Main synchronization (2026-09-26)
+
+Pulled `39fce8f` (Supabase database and authentication) and restored the local demo
+fixes. Reconciled the three alert sources through the authenticated request store,
+preserved sign-out and browser-reset behavior, and protected the local pipeline,
+change-list and selection endpoints when Supabase is enabled. Added the follow-up
+Supabase compatibility migration for numeric quantity-limit facts and source reversal
+timestamps; no live database migration was applied.
+Validation: 228 tests passed / 1 optional live test skipped with two workers and
+30-second test/hook limits after the fully parallel run hit resource-related timeouts.
+TypeScript and full lint passed; Git reports no unresolved conflicts. The original
+uncommitted work remains backed up in the pre-pull stash.
+
+## Follow-up demo reliability fixes (2026-09-26)
+
+Added exclusive connection transactions and baseline-drug validation to the NovoLog
+runner. Failed alert writes roll back detected facts, and unrelated requests cannot
+join that transaction. Added a validated selection endpoint and additive decision
+table; saving marks an alert reviewed without changing a prescription. Reset clears
+decisions and browser history. The review/dashboard use persisted choices, and the
+session hook uses React's server snapshot directly, fixing the prior lint failure.
+Optional `COVERAGE_ALERTS_NPI` enables active doctor-impact filtering for Eliquis.
+Regression suite: 210 passed, 1 optional live test skipped; TypeScript and full lint pass.
+Production build passed in `.next-verify` after a OneDrive cache cleanup error. Three
+HTTP save/reload/rerun/reset rehearsals passed on a disposable 12-patient review panel;
+the original NovoLog scenario intentionally supplies no eligible alternatives.
+
+## Demo backend integration (2026-09-26)
+
+The user requested implementation of the remaining non-SMS demo gaps. Added a
+published aggregate-payload loader for `/api/alerts`, `demo:prepare` for baseline /
+adverse / restored replay, source-aware resolution that reset cannot undo, and
+`POST /api/pipeline/run` plus `GET /api/changes` for the existing NovoLog scenario.
+Reset validates its source and completes the patient update before clearing manual
+coverage decisions. No schema, SMS transport, or auth changes were made. The ADR's
+historical Person 2 acknowledgment remains pending; this adapter exposes the existing
+alert shape and does not claim that the full aggregate contract was accepted.
+
+See [the current demo runbook](docs/demo-runbook.md). Older entries below saying the
+run endpoint, changes endpoint, or aggregate-to-alert handoff are absent are historical.
+Verified: 203 tests passed / 1 optional live test skipped, TypeScript and production
+build passed, changed-file lint passed, and three production-server HTTP demo cycles
+passed. Full lint has an existing error in `components/medishift-session.ts:73`.
+
 ## Milestone 00: Eliquis aggregate contract lock (2026-09-26)
 
 Created the tracked contract proposal in
